@@ -283,6 +283,20 @@ APK signature verification:
 & "$env:LOCALAPPDATA\Android\Sdk\build-tools\36.1.0\apksigner.bat" verify --print-certs app/build/outputs/apk/release/app-release.apk
 ```
 
+## CI
+
+GitHub Actions CI is defined in:
+
+- [`.github/workflows/android-ci.yml`](.github/workflows/android-ci.yml)
+
+It runs on both `push` and `pull_request` and executes the same core verification bundle used locally:
+
+```bash
+./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleAndroidTest :app:assembleRelease
+```
+
+The CI `release` build is expected to be unsigned because `keystore.properties` and the signing keystore are intentionally not stored in the repository.
+
 ## Emulator vs real hardware
 
 The emulator is useful for:

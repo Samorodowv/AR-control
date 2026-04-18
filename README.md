@@ -129,7 +129,7 @@ The vendored `UVCCamera` callback mapping in `UVCPreview.cpp` was patched in thi
 - [`app/src/main/java/com/example/ar_control/xreal/ProductionOneXrFacade.kt`](app/src/main/java/com/example/ar_control/xreal/ProductionOneXrFacade.kt)
   Binds app code to vendored library behavior.
 
-This path uses the glasses’ link-local network route and is independent from the camera streaming path.
+This path uses the glasses' link-local network route and is independent from the camera streaming path.
 
 ## USB/HID camera enable
 
@@ -205,7 +205,7 @@ The clip catalog is stored alongside recordings as JSON.
 - [`app/src/main/java/com/example/ar_control/startup/LaunchDiagnosticsLoader.kt`](app/src/main/java/com/example/ar_control/startup/LaunchDiagnosticsLoader.kt)
   Builds launch-time diagnostics when the app previously crashed.
 
-The app’s `Share Logs` flow is the primary diagnostics surface. `adb logcat` is useful for platform-level context, but the most important app-specific state is in the shared in-app report.
+The app's `Share Logs` flow is the primary diagnostics surface. `adb logcat` is useful for platform-level context, but the most important app-specific state is in the shared in-app report.
 
 ## Project structure
 
@@ -392,7 +392,7 @@ Check:
 
 ## Short status summary
 
-Today’s shipped app supports:
+Today's shipped app supports:
 
 - native glasses connection
 - camera enable

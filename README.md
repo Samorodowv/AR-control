@@ -27,7 +27,8 @@ The project does not use the XREAL Unity SDK. It uses:
 - Phone: `Huawei P60 Pro`
 - Glasses: `XREAL One Pro`
 - Android baseline: `minSdk 31`, `targetSdk 36`
-- Toolchain: `JDK 17`
+- App language level: Java/Kotlin target `17`
+- Test/CI runner JVM: `JDK 21`
 
 The app is optimized for the hardware above first. Other devices may work, but they are not the current support target.
 
@@ -294,6 +295,8 @@ It runs on both `push` and `pull_request` and executes the same core verificatio
 ```bash
 ./gradlew --no-daemon :app:testDebugUnitTest :app:assembleDebug :app:assembleAndroidTest :app:assembleRelease
 ```
+
+CI uses `JDK 21` because `Robolectric 4.16` running against `SDK 36` requires Java 21 for unit tests. This does not change the app's Java/Kotlin target level, which remains `17`.
 
 The CI `release` build is expected to be unsigned because `keystore.properties` and the signing keystore are intentionally not stored in the repository.
 

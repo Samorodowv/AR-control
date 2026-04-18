@@ -1,0 +1,34 @@
+<resources>
+    <string name="app_name">AR Control</string>
+    <string name="glasses_disconnected">Glasses: disconnected</string>
+    <string name="camera_idle">Camera: idle</string>
+    <string name="enable_camera">Enable Camera</string>
+    <string name="start_preview">Start Preview</string>
+    <string name="stop_preview">Stop Preview</string>
+    <string name="record_video">Record video</string>
+    <string name="recorded_clips">Recorded clips</string>
+    <string name="no_recorded_clips">No recorded clips yet</string>
+    <string name="open_clip">Open</string>
+    <string name="open_clip_unavailable">No app available to open this clip</string>
+    <string name="share_clip">Share</string>
+    <string name="delete_clip">Delete</string>
+    <string name="delete_clip_confirmation">Delete clip %1$s?</string>
+    <string name="clip_details">%1$s • %2$dx%3$d</string>
+    <string name="preview_recording_starting">Recording starting</string>
+    <string name="preview_recording_active">Recording video</string>
+    <string name="preview_recording_finalizing">Finalizing recording</string>
+    <string name="preview_recording_failed">Recording failed: %1$s</string>
+    <string name="share_logs">Share Logs</string>
+    <string name="share_logs_subject">AR Control diagnostics</string>
+    <string name="exit_preview">Exit preview</string>
+    <string name="recovery_mode_title">Recovery mode active</string>
+    <string name="recovery_mode_message">The previous preview or recording session ended unexpectedly. Camera and recording are disabled until you confirm that you want to test them again.</string>
+    <string name="re_enable_camera_testing">Re-enable Camera Testing</string>
+    <string name="re_enable_camera_testing_title">Re-enable camera testing?</string>
+    <string name="re_enable_camera_testing_message">The previous camera or recording session crashed. Re-enabling testing may reproduce the same failure. Continue only if you are ready to collect and share logs.</string>
+    <string name="broken_clip_metadata">Broken clip metadata: %1$s</string>
+    <string name="launch_guard_title">Crash diagnostics available</string>
+    <string name="launch_guard_default_message">The previous launch ended unexpectedly. Share logs before reopening the main app.</string>
+    <string name="open_main_app_anyway">Open Main App Anyway</string>
+    <string name="close_app">Close App</string>
+</resources>

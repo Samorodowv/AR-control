@@ -1,0 +1,50 @@
+<?xml version="1.0" encoding="utf-8"?>
+<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:fillViewport="true">
+
+    <LinearLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:orientation="vertical"
+        android:padding="@dimen/control_screen_padding">
+
+        <TextView
+            android:id="@+id/launchGuardTitleText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="@string/launch_guard_title"
+            android:textAppearance="?attr/textAppearanceHeadlineSmall" />
+
+        <TextView
+            android:id="@+id/launchGuardMessageText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/control_section_spacing"
+            android:text="@string/launch_guard_default_message"
+            android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+        <Button
+            android:id="@+id/launchGuardShareLogsButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/control_section_spacing"
+            android:text="@string/share_logs" />
+
+        <Button
+            android:id="@+id/launchGuardOpenAppButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/control_item_spacing"
+            android:text="@string/open_main_app_anyway" />
+
+        <Button
+            android:id="@+id/launchGuardCloseButton"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="@dimen/control_item_spacing"
+            android:text="@string/close_app" />
+    </LinearLayout>
+
+</ScrollView>

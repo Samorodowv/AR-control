@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="utf-8"?>
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent">
+
+    <ScrollView
+        android:id="@+id/controlsContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:fillViewport="true">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:padding="@dimen/control_screen_padding">
+
+            <TextView
+                android:id="@+id/glassesStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:text="@string/glasses_disconnected"
+                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+            <TextView
+                android:id="@+id/cameraStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:text="@string/camera_idle"
+                android:textAppearance="?attr/textAppearanceBodyLarge" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:id="@+id/recoveryCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_section_spacing"
+                android:visibility="gone"
+                app:cardUseCompatPadding="true">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="@dimen/control_item_spacing">
+
+                    <TextView
+                        android:id="@+id/recoveryTitleText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:text="@string/recovery_mode_title"
+                        android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+                    <TextView
+                        android:id="@+id/recoveryMessageText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/control_item_spacing"
+                        android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+                    <TextView
+                        android:id="@+id/recoveryClipMetadataText"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/control_item_spacing"
+                        android:textAppearance="?attr/textAppearanceBodySmall"
+                        android:visibility="gone" />
+
+                    <Button
+                        android:id="@+id/reEnableCameraTestingButton"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="@dimen/control_item_spacing"
+                        android:text="@string/re_enable_camera_testing" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <Button
+                android:id="@+id/enableCameraButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_section_spacing"
+                android:text="@string/enable_camera" />
+
+            <Button
+                android:id="@+id/startPreviewButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:enabled="false"
+                android:text="@string/start_preview" />
+
+            <Button
+                android:id="@+id/stopPreviewButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:enabled="false"
+                android:text="@string/stop_preview" />
+
+            <com.google.android.material.checkbox.MaterialCheckBox
+                android:id="@+id/recordVideoCheckbox"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_section_spacing"
+                android:text="@string/record_video" />
+
+            <TextView
+                android:id="@+id/recordedClipsTitle"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_section_spacing"
+                android:text="@string/recorded_clips"
+                android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+            <TextView
+                android:id="@+id/emptyRecordedClipsText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:text="@string/no_recorded_clips"
+                android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+            <androidx.recyclerview.widget.RecyclerView
+                android:id="@+id/recordedClipsRecyclerView"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:nestedScrollingEnabled="false"
+                android:overScrollMode="never" />
+
+            <LinearLayout
+                android:id="@+id/clipActionsRow"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:orientation="horizontal">
+
+                <Button
+                    android:id="@+id/openClipButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:enabled="false"
+                    android:text="@string/open_clip" />
+
+                <Button
+                    android:id="@+id/shareClipButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/control_item_spacing"
+                    android:layout_weight="1"
+                    android:enabled="false"
+                    android:text="@string/share_clip" />
+
+                <Button
+                    android:id="@+id/deleteClipButton"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/control_item_spacing"
+                    android:layout_weight="1"
+                    android:enabled="false"
+                    android:text="@string/delete_clip" />
+            </LinearLayout>
+
+            <Button
+                android:id="@+id/shareLogsButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:text="@string/share_logs" />
+        </LinearLayout>
+    </ScrollView>
+
+    <FrameLayout
+        android:id="@+id/previewContainer"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:alpha="0"
+        android:background="@android:color/black"
+        android:visibility="visible">
+
+        <com.example.ar_control.preview.AspectRatioTextureView
+            android:id="@+id/previewTextureView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center" />
+
+        <com.google.android.material.imageview.ShapeableImageView
+            android:id="@+id/previewBackButton"
+            android:layout_width="@dimen/preview_back_button_size"
+            android:layout_height="@dimen/preview_back_button_size"
+            android:layout_gravity="top|start"
+            android:layout_margin="@dimen/preview_back_button_margin"
+            android:background="@drawable/bg_preview_back_button"
+            android:clickable="true"
+            android:contentDescription="@string/exit_preview"
+            android:focusable="true"
+            android:padding="@dimen/preview_back_button_padding"
+            android:src="@drawable/ic_preview_back"
+            android:visibility="invisible"
+            app:tint="@android:color/white" />
+
+        <TextView
+            android:id="@+id/previewRecordingStatusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="@dimen/preview_status_margin_top"
+            android:background="#66000000"
+            android:paddingStart="@dimen/preview_status_padding_horizontal"
+            android:paddingTop="@dimen/preview_status_padding_vertical"
+            android:paddingEnd="@dimen/preview_status_padding_horizontal"
+            android:paddingBottom="@dimen/preview_status_padding_vertical"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="@android:color/white"
+            android:visibility="gone" />
+    </FrameLayout>
+
+</FrameLayout>

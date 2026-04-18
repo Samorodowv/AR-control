@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="clip_surface">#FF1E1F22</color>
+    <color name="clip_outline">#FF44474F</color>
+    <color name="clip_primary_container">#FF4D3D73</color>
+    <color name="clip_secondary_container">#FF2A3036</color>
+</resources>

@@ -1,0 +1,15 @@
+<resources>
+    <dimen name="control_screen_padding">16dp</dimen>
+    <dimen name="control_section_spacing">16dp</dimen>
+    <dimen name="control_item_spacing">8dp</dimen>
+    <dimen name="clip_card_corner_radius">16dp</dimen>
+    <dimen name="clip_card_inner_padding">12dp</dimen>
+    <dimen name="clip_grid_spacing">8dp</dimen>
+    <dimen name="clip_preview_height">72dp</dimen>
+    <dimen name="preview_status_margin_top">16dp</dimen>
+    <dimen name="preview_status_padding_horizontal">12dp</dimen>
+    <dimen name="preview_status_padding_vertical">6dp</dimen>
+    <dimen name="preview_back_button_size">40dp</dimen>
+    <dimen name="preview_back_button_margin">16dp</dimen>
+    <dimen name="preview_back_button_padding">8dp</dimen>
+</resources>

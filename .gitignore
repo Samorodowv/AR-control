@@ -29,3 +29,4 @@ temp_fileprovider_src/
 /vendor/uvccamera.upstream/
 /vendor/xr-tools.reference/
 /vendor/xreal_one_driver.reference/
+.worktrees/

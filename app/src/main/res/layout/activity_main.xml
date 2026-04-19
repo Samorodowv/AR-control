@@ -99,12 +99,25 @@
                 android:enabled="false"
                 android:text="@string/stop_preview" />
 
-            <com.google.android.material.checkbox.MaterialCheckBox
-                android:id="@+id/recordVideoCheckbox"
-                android:layout_width="wrap_content"
+            <LinearLayout
+                android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/control_section_spacing"
-                android:text="@string/record_video" />
+                android:orientation="horizontal">
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/recordVideoCheckbox"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/record_video" />
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/objectDetectionCheckbox"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/control_item_spacing"
+                    android:text="@string/object_detection" />
+            </LinearLayout>
 
             <TextView
                 android:id="@+id/recordedClipsTitle"
@@ -183,6 +196,12 @@
 
         <com.example.ar_control.preview.AspectRatioTextureView
             android:id="@+id/previewTextureView"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="center" />
+
+        <com.example.ar_control.ui.preview.DetectionOverlayView
+            android:id="@+id/detectionOverlayView"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center" />

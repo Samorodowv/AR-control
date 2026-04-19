@@ -4,11 +4,19 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ar_control.camera.CameraSource
 import com.example.ar_control.camera.PreviewSize
+import com.example.ar_control.detection.DetectionPreferences
+import com.example.ar_control.detection.NoOpObjectDetector
+import com.example.ar_control.detection.ObjectDetectionSession
+import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
 import com.example.ar_control.recording.ClipRepository
+import com.example.ar_control.recording.DetectionAnnotationSink
+import com.example.ar_control.recording.FrameCallbackTargetFanOut
+import com.example.ar_control.recording.NoOpDetectionAnnotationSink
 import com.example.ar_control.recording.RecordedClip
 import com.example.ar_control.recording.RecordingPreferences
 import com.example.ar_control.recording.RecordingStatus
+import com.example.ar_control.recording.RecordingInputTarget
 import com.example.ar_control.recording.VideoRecorder
 import com.example.ar_control.recovery.RecoveryManager
 import com.example.ar_control.recovery.RecoverySnapshot
@@ -33,6 +41,13 @@ class PreviewViewModel(
     private val usbPermissionGateway: UsbPermissionGateway,
     private val cameraSource: CameraSource,
     private val recordingPreferences: RecordingPreferences,
+    private val detectionPreferences: DetectionPreferences = object : DetectionPreferences {
+        override fun isObjectDetectionEnabled(): Boolean = false
+
+        override fun setObjectDetectionEnabled(enabled: Boolean) = Unit
+    },
+    private val objectDetector: ObjectDetector = NoOpObjectDetector,
+    private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
     private val recoveryManager: RecoveryManager,
@@ -50,6 +65,8 @@ class PreviewViewModel(
     private var previewGeneration = 0L
     private var stopPreviewInFlight = false
     private var recoverySnapshot = RecoverySnapshot()
+    private var activeDetectionSession: ObjectDetectionSession? = null
+    private var hasActiveFrameCallbackCapture = false
 
     init {
         applyRecoverySnapshot(recoveryManager.snapshot())
@@ -137,7 +154,7 @@ class PreviewViewModel(
                     sessionLog.record("PreviewViewModel", "Preview started successfully")
                     recoveryManager.markPreviewStarted()
                     _uiState.value = previewRunningState(result.previewSize)
-                    maybeStartRecording(result.previewSize, generation)
+                    maybeStartFramePipeline(result.previewSize, generation)
                 }
 
                 is CameraSource.StartResult.Failed -> {
@@ -178,6 +195,16 @@ class PreviewViewModel(
         _uiState.value = applyRecoveryState(_uiState.value.copy(recordVideoEnabled = enabled))
     }
 
+    fun setObjectDetectionEnabled(enabled: Boolean) {
+        if (recoverySnapshot.isSafeMode) {
+            sessionLog.record("PreviewViewModel", "Object detection preference change ignored because safe mode is active")
+            return
+        }
+        detectionPreferences.setObjectDetectionEnabled(enabled)
+        sessionLog.record("PreviewViewModel", "Object detection preference changed: $enabled")
+        _uiState.value = applyRecoveryState(_uiState.value.copy(objectDetectionEnabled = enabled))
+    }
+
     fun confirmSafeModeExit() {
         viewModelScope.launch {
             sessionLog.record("PreviewViewModel", "Safe mode exit confirmed by user")
@@ -193,6 +220,7 @@ class PreviewViewModel(
                     previewSize = null,
                     zoomFactor = minZoomFactor,
                     recordVideoEnabled = recordingPreferences.isRecordingEnabled(),
+                    objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled(),
                     recordingStatus = RecordingStatus.Idle,
                     errorMessage = null
                 )
@@ -258,6 +286,7 @@ class PreviewViewModel(
     override fun onCleared() {
         cleanupScope.launch {
             sessionLog.record("PreviewViewModel", "Clearing preview resources")
+            runCatching { activeDetectionSession?.close() }
             runCatching { cameraSource.stopRecording() }
             runCatching { videoRecorder.cancel() }
             runCatching { cameraSource.stop() }
@@ -269,7 +298,11 @@ class PreviewViewModel(
 
     private fun loadInitialRecordingState() {
         val recordVideoEnabled = recordingPreferences.isRecordingEnabled()
-        _uiState.value = applyRecoveryState(_uiState.value.copy(recordVideoEnabled = recordVideoEnabled))
+        val objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled()
+        _uiState.value = applyRecoveryState(_uiState.value.copy(
+            recordVideoEnabled = recordVideoEnabled,
+            objectDetectionEnabled = objectDetectionEnabled
+        ))
 
         viewModelScope.launch {
             refreshRecordedClipsInternal()
@@ -328,8 +361,41 @@ class PreviewViewModel(
         return null
     }
 
-    private suspend fun maybeStartRecording(previewSize: PreviewSize, generation: Long) {
-        if (!_uiState.value.recordVideoEnabled || !isCurrentPreviewGeneration(generation)) {
+    private suspend fun maybeStartFramePipeline(previewSize: PreviewSize, generation: Long) {
+        val shouldRunDetection = _uiState.value.objectDetectionEnabled
+        val shouldRecord = _uiState.value.recordVideoEnabled
+        if (!shouldRunDetection) {
+            detectionAnnotationSink.clearDetections()
+        }
+        if ((!shouldRunDetection && !shouldRecord) || !isCurrentPreviewGeneration(generation)) {
+            return
+        }
+
+        val detectionSession = if (shouldRunDetection) {
+            objectDetector.start(previewSize) { detections ->
+                detectionAnnotationSink.updateDetections(previewSize, detections)
+                viewModelScope.launch {
+                    if (_uiState.value.isPreviewRunning) {
+                        _uiState.value = applyRecoveryState(_uiState.value.copy(
+                            detectedObjects = detections
+                        ))
+                    }
+                }
+            }.also { activeDetectionSession = it }
+        } else {
+            null
+        }
+
+        if (!shouldRecord) {
+            val activeDetectionSession = detectionSession ?: return
+            startFrameCallbackCapture(
+                target = activeDetectionSession.inputTarget,
+                generation = generation,
+                onFailure = { reason ->
+                    closeDetectionSession(clearDetections = true)
+                    _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = reason))
+                }
+            )
             return
         }
 
@@ -342,6 +408,7 @@ class PreviewViewModel(
             is VideoRecorder.StartResult.Started -> {
                 if (!isCurrentPreviewGeneration(generation)) {
                     sessionLog.record("PreviewViewModel", "Recorder prepared after preview stop; cancelling stale session")
+                    closeDetectionSession(clearDetections = true)
                     cancelPreparedRecorder(reasonForLog = "Stale preview generation after recorder start")
                     return
                 }
@@ -351,11 +418,27 @@ class PreviewViewModel(
                     height = previewSize.height,
                     mimeType = "video/mp4"
                 )
-                when (val captureResult = cameraSource.startRecording(recorderResult.inputTarget)) {
+                val captureTarget = combineFrameTargets(
+                    recorderTarget = recorderResult.inputTarget,
+                    detectionSession = detectionSession
+                )
+                if (captureTarget == null) {
+                    closeDetectionSession(clearDetections = true)
+                    cancelPreparedRecorder(reasonForLog = "Unsupported detection and recording targets")
+                    _uiState.value = applyRecoveryState(_uiState.value.copy(
+                        recordingStatus = RecordingStatus.Failed("detection_recording_target_mismatch"),
+                        errorMessage = "detection_recording_target_mismatch"
+                    ))
+                    return
+                }
+
+                when (val captureResult = startFrameCallbackCapture(captureTarget, generation)) {
                     CameraSource.RecordingStartResult.Started -> {
                         if (!isCurrentPreviewGeneration(generation)) {
                             sessionLog.record("PreviewViewModel", "Capture started after preview stop; cancelling stale session")
                             runCatching { cameraSource.stopRecording() }
+                            hasActiveFrameCallbackCapture = false
+                            closeDetectionSession(clearDetections = true)
                             cancelPreparedRecorder(reasonForLog = "Stale preview generation after capture start")
                             return
                         }
@@ -369,6 +452,7 @@ class PreviewViewModel(
                     is CameraSource.RecordingStartResult.Failed -> {
                         if (!isCurrentPreviewGeneration(generation)) {
                             sessionLog.record("PreviewViewModel", "Capture failure arrived after preview stop; cancelling stale session")
+                            closeDetectionSession(clearDetections = true)
                             cancelPreparedRecorder(reasonForLog = "Stale preview generation after capture failure")
                             return
                         }
@@ -377,6 +461,7 @@ class PreviewViewModel(
                             "Recording capture failed: ${captureResult.reason}"
                         )
                         cancelPreparedRecorder(reasonForLog = "Capture start failed")
+                        closeDetectionSession(clearDetections = true)
                         recoveryManager.markPreviewStarted()
                         _uiState.value = applyRecoveryState(_uiState.value.copy(
                             recordingStatus = RecordingStatus.Failed(captureResult.reason),
@@ -391,6 +476,7 @@ class PreviewViewModel(
                     sessionLog.record("PreviewViewModel", "Recorder failure arrived after preview stop; ignoring stale session")
                     return
                 }
+                closeDetectionSession(clearDetections = true)
                 sessionLog.record("PreviewViewModel", "Recorder start failed: ${recorderResult.reason}")
                 _uiState.value = applyRecoveryState(_uiState.value.copy(
                     recordingStatus = RecordingStatus.Failed(recorderResult.reason),
@@ -413,7 +499,7 @@ class PreviewViewModel(
             RecordingStatus.Recording -> {
                 _uiState.value = _uiState.value.copy(recordingStatus = RecordingStatus.Finalizing)
                 sessionLog.record("PreviewViewModel", "Stopping camera recording capture")
-                val stopRecordingFailure = runCatching { cameraSource.stopRecording() }
+                val stopRecordingFailure = stopActiveFrameCallbackCapture()
                     .exceptionOrNull()
                     ?.message
 
@@ -464,15 +550,24 @@ class PreviewViewModel(
             RecordingStatus.Idle,
             RecordingStatus.Finalizing,
             is RecordingStatus.Failed -> {
+                val stopCaptureFailure = stopActiveFrameCallbackCapture()
+                    .exceptionOrNull()
+                    ?.message
+                if (stopCaptureFailure != null) {
+                    nextErrorMessage = stopCaptureFailure
+                    nextRecordingStatus = RecordingStatus.Failed(stopCaptureFailure)
+                }
                 val cancelFailure = cancelPreparedRecorder(reasonForLog = "Preview stop cleanup")
                 if (cancelFailure != null) {
                     nextErrorMessage = cancelFailure
                     nextRecordingStatus = RecordingStatus.Failed(cancelFailure)
-                } else if (currentRecordingStatus !is RecordingStatus.Failed) {
+                } else if (stopCaptureFailure == null && currentRecordingStatus !is RecordingStatus.Failed) {
                     nextRecordingStatus = RecordingStatus.Idle
                 }
             }
         }
+
+        closeDetectionSession(clearDetections = true)
 
         sessionLog.record("PreviewViewModel", "Stopping camera preview source")
         cameraSource.stop()
@@ -568,18 +663,21 @@ class PreviewViewModel(
                 previewSize = null,
                 zoomFactor = minZoomFactor,
                 recordVideoEnabled = false,
+                objectDetectionEnabled = false,
                 recordingStatus = RecordingStatus.Idle,
                 isSafeMode = true,
                 safeModeReason = snapshot.safeModeReason,
                 brokenClipMetadata = snapshot.brokenClipMetadata,
-                canChangeRecordVideo = false
+                canChangeRecordVideo = false,
+                canChangeObjectDetection = false
             )
         } else {
             baseState.copy(
                 isSafeMode = false,
                 safeModeReason = snapshot.safeModeReason,
                 brokenClipMetadata = snapshot.brokenClipMetadata,
-                canChangeRecordVideo = true
+                canChangeRecordVideo = true,
+                canChangeObjectDetection = true
             )
         }
     }
@@ -605,6 +703,7 @@ class PreviewViewModel(
             previewSize = null,
             zoomFactor = minZoomFactor,
             recordingStatus = recordingStatus,
+            detectedObjects = emptyList(),
             errorMessage = errorMessage
         ))
     }
@@ -622,6 +721,7 @@ class PreviewViewModel(
             previewSize = null,
             zoomFactor = minZoomFactor,
             recordingStatus = recordingStatus,
+            detectedObjects = emptyList(),
             errorMessage = errorMessage
         ))
     }
@@ -636,8 +736,61 @@ class PreviewViewModel(
             previewSize = previewSize,
             zoomFactor = minZoomFactor,
             recordingStatus = RecordingStatus.Idle,
+            detectedObjects = emptyList(),
             errorMessage = null
         ))
+    }
+
+    private suspend fun startFrameCallbackCapture(
+        target: RecordingInputTarget,
+        generation: Long,
+        onFailure: ((String) -> Unit)? = null
+    ): CameraSource.RecordingStartResult {
+        val result = cameraSource.startRecording(target)
+        return when (result) {
+            CameraSource.RecordingStartResult.Started -> {
+                if (isCurrentPreviewGeneration(generation)) {
+                    hasActiveFrameCallbackCapture = true
+                }
+                result
+            }
+            is CameraSource.RecordingStartResult.Failed -> {
+                hasActiveFrameCallbackCapture = false
+                onFailure?.invoke(result.reason)
+                result
+            }
+        }
+    }
+
+    private suspend fun stopActiveFrameCallbackCapture(): Result<Unit> {
+        if (!hasActiveFrameCallbackCapture) {
+            return Result.success(Unit)
+        }
+        return runCatching {
+            cameraSource.stopRecording()
+            hasActiveFrameCallbackCapture = false
+        }
+    }
+
+    private fun combineFrameTargets(
+        recorderTarget: RecordingInputTarget,
+        detectionSession: ObjectDetectionSession?
+    ): RecordingInputTarget? {
+        val detectionTarget = detectionSession?.inputTarget ?: return recorderTarget
+        val recordingCallbackTarget = recorderTarget as? RecordingInputTarget.FrameCallbackTarget
+            ?: return null
+        return FrameCallbackTargetFanOut.combine(
+            listOf(recordingCallbackTarget, detectionTarget)
+        )
+    }
+
+    private fun closeDetectionSession(clearDetections: Boolean) {
+        activeDetectionSession?.close()
+        activeDetectionSession = null
+        if (clearDetections) {
+            detectionAnnotationSink.clearDetections()
+            _uiState.value = applyRecoveryState(_uiState.value.copy(detectedObjects = emptyList()))
+        }
     }
     private companion object {
         const val RECORDING_NOT_STARTED = "recording_not_started"

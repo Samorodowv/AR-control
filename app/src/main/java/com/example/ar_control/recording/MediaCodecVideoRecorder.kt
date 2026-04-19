@@ -5,12 +5,14 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import com.example.ar_control.camera.PreviewSize
+import com.example.ar_control.detection.DetectedObject
 import com.example.ar_control.diagnostics.NoOpSessionLog
 import com.example.ar_control.diagnostics.SessionLog
 import java.io.File
 import java.util.UUID
 import java.util.concurrent.LinkedBlockingDeque
 import java.util.concurrent.TimeUnit
+import java.util.concurrent.atomic.AtomicReference
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
@@ -81,10 +83,11 @@ class MediaCodecVideoRecorder internal constructor(
         "clip-${System.currentTimeMillis()}-${UUID.randomUUID()}.mp4"
     },
     private val engineFactory: RecorderEngineFactory = AndroidRecorderEngineFactory
-) : VideoRecorder {
+) : VideoRecorder, DetectionAnnotationSink {
 
     private val mutex = Mutex()
     private var activeSession: RecordingSession? = null
+    private val detectionAnnotationSnapshot = AtomicReference<DetectionAnnotationSnapshot?>(null)
 
     constructor(
         outputDirectory: File,
@@ -98,6 +101,22 @@ class MediaCodecVideoRecorder internal constructor(
         },
         engineFactory = AndroidRecorderEngineFactory
     )
+
+    override fun updateDetections(
+        previewSize: PreviewSize,
+        detections: List<DetectedObject>
+    ) {
+        detectionAnnotationSnapshot.set(
+            DetectionAnnotationSnapshot(
+                previewSize = previewSize,
+                detections = detections.toList()
+            )
+        )
+    }
+
+    override fun clearDetections() {
+        detectionAnnotationSnapshot.set(null)
+    }
 
     override suspend fun start(previewSize: PreviewSize): VideoRecorder.StartResult =
         withContext(Dispatchers.IO) {
@@ -125,7 +144,8 @@ class MediaCodecVideoRecorder internal constructor(
                     val engine = engineFactory.create(
                         outputFile = outputFile,
                         previewSize = previewSize,
-                        sessionLog = sessionLog
+                        sessionLog = sessionLog,
+                        detectionAnnotationSnapshotProvider = detectionAnnotationSnapshot::get
                     )
                     val session = RecordingSession(
                         outputFile = outputFile,
@@ -249,7 +269,8 @@ class MediaCodecVideoRecorder internal constructor(
         fun create(
             outputFile: File,
             previewSize: PreviewSize,
-            sessionLog: SessionLog
+            sessionLog: SessionLog,
+            detectionAnnotationSnapshotProvider: () -> DetectionAnnotationSnapshot?
         ): RecorderEngine
     }
 
@@ -270,16 +291,23 @@ class MediaCodecVideoRecorder internal constructor(
         override fun create(
             outputFile: File,
             previewSize: PreviewSize,
-            sessionLog: SessionLog
+            sessionLog: SessionLog,
+            detectionAnnotationSnapshotProvider: () -> DetectionAnnotationSnapshot?
         ): RecorderEngine {
-            return AndroidRecorderEngine(outputFile, previewSize, sessionLog)
+            return AndroidRecorderEngine(
+                outputFile = outputFile,
+                previewSize = previewSize,
+                sessionLog = sessionLog,
+                detectionAnnotationSnapshotProvider = detectionAnnotationSnapshotProvider
+            )
         }
     }
 
     private class AndroidRecorderEngine(
         outputFile: File,
         previewSize: PreviewSize,
-        private val sessionLog: SessionLog
+        private val sessionLog: SessionLog,
+        private val detectionAnnotationSnapshotProvider: () -> DetectionAnnotationSnapshot?
     ) : RecorderEngine {
 
         private val codec: MediaCodec
@@ -293,6 +321,7 @@ class MediaCodecVideoRecorder internal constructor(
         private val sourcePixelFormat = DEFAULT_RECORDER_FRAME_CALLBACK_PIXEL_FORMAT
         private val selectedColorFormat: Int
         private val converter: Yuv420FrameConverter
+        private val detectionAnnotationRenderer = YuvDetectionAnnotationRenderer()
         private val frameQueue = LinkedBlockingDeque<FramePacket>(MAX_PENDING_FRAMES)
         private val encodedFrameBuffer = ByteArray(frameWidth * frameHeight * 3 / 2)
         @Volatile
@@ -444,6 +473,12 @@ class MediaCodecVideoRecorder internal constructor(
             val inputBuffer = codec.getInputBuffer(inputBufferIndex)
                 ?: throw IllegalStateException("encoder input buffer unavailable")
 
+            detectionAnnotationRenderer.annotate(
+                frameBytes = packet.data,
+                frameWidth = frameWidth,
+                frameHeight = frameHeight,
+                snapshot = detectionAnnotationSnapshotProvider()
+            )
             val convertedLength = converter.convert(packet.data, encodedFrameBuffer)
             inputBuffer.clear()
             inputBuffer.put(encodedFrameBuffer, 0, convertedLength)

@@ -26,6 +26,8 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.recyclerview.widget.RecyclerView
 import com.example.ar_control.camera.CameraSource
 import com.example.ar_control.camera.PreviewSize
+import com.example.ar_control.detection.DetectionPreferences
+import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.di.AppContainer
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.InMemorySessionLog
@@ -277,6 +279,7 @@ private class FakeAppContainer(
             )
         )
     )
+    val detectionPreferences = FakeDetectionPreferences()
     override val clipFileSharer = FakeClipFileSharer(context)
     override val previewViewModelFactory = PreviewViewModelFactory(
         glassesSession = FakeGlassesSession(),
@@ -284,6 +287,8 @@ private class FakeAppContainer(
         usbPermissionGateway = FakeUsbPermissionGateway(),
         cameraSource = FakeCameraSource(),
         recordingPreferences = recordingPreferences,
+        detectionPreferences = detectionPreferences,
+        objectDetector = NoOpObjectDetector,
         clipRepository = clipRepository,
         videoRecorder = FakeVideoRecorder(),
         recoveryManager = recoveryManager,
@@ -327,6 +332,19 @@ private class FakeRecordingPreferences(
     override fun isRecordingEnabled(): Boolean = enabled
 
     override fun setRecordingEnabled(enabled: Boolean) {
+        this.enabled = enabled
+        setCalls += 1
+    }
+}
+
+private class FakeDetectionPreferences(
+    var enabled: Boolean = false
+) : DetectionPreferences {
+    var setCalls = 0
+
+    override fun isObjectDetectionEnabled(): Boolean = enabled
+
+    override fun setObjectDetectionEnabled(enabled: Boolean) {
         this.enabled = enabled
         setCalls += 1
     }

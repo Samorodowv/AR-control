@@ -5,12 +5,21 @@ import android.view.Surface
 import com.example.ar_control.ArControlApp
 import com.example.ar_control.camera.CameraSource
 import com.example.ar_control.camera.PreviewSize
+import com.example.ar_control.detection.DetectionPreferences
+import com.example.ar_control.detection.DetectedObject
+import com.example.ar_control.detection.DetectionBoundingBox
+import com.example.ar_control.detection.ObjectDetectionSession
+import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.InMemorySessionLog
 import com.example.ar_control.recording.ClipRepository
+import com.example.ar_control.recording.DetectionAnnotationSink
 import com.example.ar_control.recording.RecordingInputTarget
+import com.example.ar_control.recording.NoOpDetectionAnnotationSink
 import com.example.ar_control.recording.RecordedClip
 import com.example.ar_control.recording.RecordingPreferences
 import com.example.ar_control.recording.RecordingStatus
+import com.example.ar_control.recording.VideoFrameConsumer
+import com.example.ar_control.recording.VideoFramePixelFormat
 import com.example.ar_control.recording.VideoRecorder
 import com.example.ar_control.recovery.RecoveryManager
 import com.example.ar_control.recovery.RecoverySnapshot
@@ -150,6 +159,7 @@ class PreviewViewModelTest {
         val clipRepository = FakeClipRepository(mutableListOf(olderClip, newerClip))
         val viewModel = buildViewModel(
             recordingPreferences = FakeRecordingPreferences(enabled = true),
+            detectionPreferences = FakeDetectionPreferences(enabled = true),
             clipRepository = clipRepository,
             cleanupScope = cleanupScope
         )
@@ -157,6 +167,7 @@ class PreviewViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         assertTrue(viewModel.uiState.value.recordVideoEnabled)
+        assertTrue(viewModel.uiState.value.objectDetectionEnabled)
         assertEquals(listOf("older", "newer"), viewModel.uiState.value.recordedClips.map { it.id })
         assertEquals(1, clipRepository.loadCalls)
         assertEquals(RecordingStatus.Idle, viewModel.uiState.value.recordingStatus)
@@ -181,6 +192,21 @@ class PreviewViewModelTest {
     }
 
     @Test
+    fun setObjectDetectionEnabled_updatesUiStateAndPreferenceStore() = runTest {
+        val detectionPreferences = FakeDetectionPreferences(enabled = false)
+        val viewModel = buildViewModel(
+            detectionPreferences = detectionPreferences,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.setObjectDetectionEnabled(true)
+
+        assertTrue(viewModel.uiState.value.objectDetectionEnabled)
+        assertTrue(detectionPreferences.isObjectDetectionEnabled())
+        assertEquals(1, detectionPreferences.setCalls)
+    }
+
+    @Test
     fun init_whenSafeModeActive_disablesCameraAndMasksRecordingPreference() = runTest {
         val recoveryManager = FakeRecoveryManager(
             snapshot = RecoverySnapshot(
@@ -200,7 +226,9 @@ class PreviewViewModelTest {
         assertFalse(viewModel.uiState.value.canEnableCamera)
         assertFalse(viewModel.uiState.value.canStartPreview)
         assertFalse(viewModel.uiState.value.recordVideoEnabled)
+        assertFalse(viewModel.uiState.value.objectDetectionEnabled)
         assertFalse(viewModel.uiState.value.canChangeRecordVideo)
+        assertFalse(viewModel.uiState.value.canChangeObjectDetection)
         assertEquals(
             "Recovered after abnormal termination during recording",
             viewModel.uiState.value.safeModeReason
@@ -216,8 +244,10 @@ class PreviewViewModelTest {
             )
         )
         val recordingPreferences = FakeRecordingPreferences(enabled = true)
+        val detectionPreferences = FakeDetectionPreferences(enabled = true)
         val viewModel = buildViewModel(
             recordingPreferences = recordingPreferences,
+            detectionPreferences = detectionPreferences,
             recoveryManager = recoveryManager,
             cleanupScope = cleanupScope
         )
@@ -230,7 +260,9 @@ class PreviewViewModelTest {
         assertTrue(viewModel.uiState.value.canEnableCamera)
         assertFalse(viewModel.uiState.value.canStartPreview)
         assertTrue(viewModel.uiState.value.recordVideoEnabled)
+        assertTrue(viewModel.uiState.value.objectDetectionEnabled)
         assertTrue(viewModel.uiState.value.canChangeRecordVideo)
+        assertTrue(viewModel.uiState.value.canChangeObjectDetection)
         assertEquals(1, recoveryManager.clearSafeModeCalls)
     }
 
@@ -309,6 +341,72 @@ class PreviewViewModelTest {
             assertEquals(1, cameraSource.startRecordingCalls)
             assertEquals(testSurface.surface, cameraSource.lastCaptureSurface)
         }
+    }
+
+    @Test
+    fun startPreview_withObjectDetectionEnabled_startsSharedFrameCallbackStream() = runTest {
+        val cameraSource = FakeCameraSource(
+            startResult = CameraSource.StartResult.Started(PreviewSize(width = 1920, height = 1080)),
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val objectDetector = FakeObjectDetector()
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            detectionPreferences = FakeDetectionPreferences(enabled = true),
+            objectDetector = objectDetector,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isPreviewRunning)
+        assertEquals(1, objectDetector.startCalls)
+        assertEquals(1, cameraSource.startRecordingCalls)
+        assertTrue(cameraSource.lastRecordingTarget is RecordingInputTarget.FrameCallbackTarget)
+    }
+
+    @Test
+    fun detectionResults_updateUiStateAndAreClearedWhenPreviewStops() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val objectDetector = FakeObjectDetector()
+        val detectionAnnotationSink = FakeDetectionAnnotationSink()
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            detectionPreferences = FakeDetectionPreferences(enabled = true),
+            objectDetector = objectDetector,
+            detectionAnnotationSink = detectionAnnotationSink,
+            cleanupScope = cleanupScope
+        )
+        val expectedDetection = DetectedObject(
+            labelIndex = 1,
+            label = "car",
+            confidence = 0.82f,
+            boundingBox = DetectionBoundingBox(10f, 20f, 30f, 40f)
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        objectDetector.lastSession?.publish(listOf(expectedDetection))
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(listOf(expectedDetection), viewModel.uiState.value.detectedObjects)
+        assertEquals(1, detectionAnnotationSink.updates.size)
+        assertEquals(listOf(expectedDetection), detectionAnnotationSink.updates.single().detections)
+
+        viewModel.stopPreview()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(objectDetector.lastSession?.closed == true)
+        assertTrue(viewModel.uiState.value.detectedObjects.isEmpty())
+        assertEquals(1, detectionAnnotationSink.clearCalls)
     }
 
     @Test
@@ -870,6 +968,9 @@ private fun buildViewModel(
     usbPermissionGateway: UsbPermissionGateway = FakeUsbPermissionGateway(true),
     cameraSource: CameraSource = FakeCameraSource(),
     recordingPreferences: RecordingPreferences = FakeRecordingPreferences(),
+    detectionPreferences: DetectionPreferences = FakeDetectionPreferences(),
+    objectDetector: ObjectDetector = FakeObjectDetector(),
+    detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     clipRepository: ClipRepository = FakeClipRepository(),
     videoRecorder: VideoRecorder = FakeVideoRecorder(),
     recoveryManager: RecoveryManager = FakeRecoveryManager(),
@@ -883,6 +984,9 @@ private fun buildViewModel(
         usbPermissionGateway = usbPermissionGateway,
         cameraSource = cameraSource,
         recordingPreferences = recordingPreferences,
+        detectionPreferences = detectionPreferences,
+        objectDetector = objectDetector,
+        detectionAnnotationSink = detectionAnnotationSink,
         clipRepository = clipRepository,
         videoRecorder = videoRecorder,
         recoveryManager = recoveryManager,
@@ -971,6 +1075,7 @@ private class FakeCameraSource : CameraSource {
     private val stopRecordingFailure: Throwable?
     var lastStartSurfaceToken: CameraSource.SurfaceToken? = null
     var lastCaptureSurface: Surface? = null
+    var lastRecordingTarget: RecordingInputTarget? = null
     var stopCalled = false
     var startRecordingCalls = 0
     var stopRecordingCalls = 0
@@ -988,6 +1093,7 @@ private class FakeCameraSource : CameraSource {
         target: RecordingInputTarget
     ): CameraSource.RecordingStartResult {
         startRecordingCalls += 1
+        lastRecordingTarget = target
         lastCaptureSurface = (target as? RecordingInputTarget.SurfaceTarget)?.surface
         return recordingStartResult
     }
@@ -1008,6 +1114,74 @@ private class FakeRecordingPreferences(
     override fun setRecordingEnabled(enabled: Boolean) {
         this.enabled = enabled
         setCalls += 1
+    }
+}
+
+private class FakeDetectionPreferences(
+    private var enabled: Boolean = false
+) : DetectionPreferences {
+    var setCalls = 0
+
+    override fun isObjectDetectionEnabled(): Boolean = enabled
+
+    override fun setObjectDetectionEnabled(enabled: Boolean) {
+        this.enabled = enabled
+        setCalls += 1
+    }
+}
+
+private class FakeObjectDetector : ObjectDetector {
+    var startCalls = 0
+    var lastSession: FakeObjectDetectionSession? = null
+
+    override fun start(
+        previewSize: PreviewSize,
+        onDetectionsUpdated: (List<DetectedObject>) -> Unit
+    ): ObjectDetectionSession {
+        startCalls += 1
+        return FakeObjectDetectionSession(onDetectionsUpdated).also {
+            lastSession = it
+        }
+    }
+}
+
+private class FakeObjectDetectionSession(
+    private val onDetectionsUpdated: (List<DetectedObject>) -> Unit
+) : ObjectDetectionSession {
+    var closed = false
+        private set
+
+    override val inputTarget: RecordingInputTarget.FrameCallbackTarget =
+        RecordingInputTarget.FrameCallbackTarget(
+            pixelFormat = VideoFramePixelFormat.YUV420SP,
+            frameConsumer = VideoFrameConsumer { _, _ -> }
+        )
+
+    fun publish(detections: List<DetectedObject>) {
+        onDetectionsUpdated(detections)
+    }
+
+    override fun close() {
+        closed = true
+    }
+}
+
+private class FakeDetectionAnnotationSink : DetectionAnnotationSink {
+    val updates = mutableListOf<com.example.ar_control.recording.DetectionAnnotationSnapshot>()
+    var clearCalls = 0
+
+    override fun updateDetections(
+        previewSize: PreviewSize,
+        detections: List<DetectedObject>
+    ) {
+        updates += com.example.ar_control.recording.DetectionAnnotationSnapshot(
+            previewSize = previewSize,
+            detections = detections
+        )
+    }
+
+    override fun clearDetections() {
+        clearCalls += 1
     }
 }
 

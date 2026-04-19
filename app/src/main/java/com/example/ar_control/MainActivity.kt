@@ -62,6 +62,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var previewBackPressedCallback: OnBackPressedCallback
     private lateinit var recordedClipAdapter: RecordedClipAdapter
     private lateinit var recordVideoCheckedChangeListener: CompoundButton.OnCheckedChangeListener
+    private lateinit var objectDetectionCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private val previewBackButtonBaseMargin by lazy {
         resources.getDimensionPixelSize(R.dimen.preview_back_button_margin)
     }
@@ -125,6 +126,14 @@ class MainActivity : ComponentActivity() {
                 )
                 previewViewModel.setRecordVideoEnabled(isChecked)
             }
+        objectDetectionCheckedChangeListener =
+            CompoundButton.OnCheckedChangeListener { _, isChecked ->
+                appContainer.sessionLog.record(
+                    "MainActivity",
+                    "Object detection checkbox changed: $isChecked"
+                )
+                previewViewModel.setObjectDetectionEnabled(isChecked)
+            }
 
         previewBackPressedCallback = onBackPressedDispatcher.addCallback(this, false) {
             appContainer.sessionLog.record("MainActivity", "Hardware back pressed in fullscreen preview")
@@ -151,6 +160,7 @@ class MainActivity : ComponentActivity() {
             shareLogs()
         }
         binding.recordVideoCheckbox.setOnCheckedChangeListener(recordVideoCheckedChangeListener)
+        binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
         binding.openClipButton.setOnClickListener {
             latestUiState.selectedClip?.let { clip ->
                 openClipSafely(clip)
@@ -240,7 +250,9 @@ class MainActivity : ComponentActivity() {
         binding.startPreviewButton.isEnabled = surfaceController.isStartButtonEnabled(uiState)
         binding.stopPreviewButton.isEnabled = uiState.canStopPreview
         renderRecordVideoCheckbox(uiState.recordVideoEnabled)
+        renderObjectDetectionCheckbox(uiState.objectDetectionEnabled)
         binding.recordVideoCheckbox.isEnabled = uiState.canChangeRecordVideo
+        binding.objectDetectionCheckbox.isEnabled = uiState.canChangeObjectDetection
         binding.openClipButton.isEnabled = uiState.canOpenSelectedClip
         binding.shareClipButton.isEnabled = uiState.canShareSelectedClip
         binding.deleteClipButton.isEnabled = uiState.canDeleteSelectedClip
@@ -254,6 +266,8 @@ class MainActivity : ComponentActivity() {
         binding.previewContainer.alpha = if (uiState.isPreviewRunning) 1f else 0f
         binding.previewContainer.isClickable = uiState.isPreviewRunning
         binding.previewContainer.isFocusable = uiState.isPreviewRunning
+        binding.detectionOverlayView.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
+        binding.detectionOverlayView.setDetections(uiState.detectedObjects)
         binding.previewBackButton.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
         binding.previewBackButton.isEnabled = uiState.isPreviewRunning
 
@@ -324,6 +338,15 @@ class MainActivity : ComponentActivity() {
         binding.recordVideoCheckbox.setOnCheckedChangeListener(recordVideoCheckedChangeListener)
     }
 
+    private fun renderObjectDetectionCheckbox(objectDetectionEnabled: Boolean) {
+        if (binding.objectDetectionCheckbox.isChecked == objectDetectionEnabled) {
+            return
+        }
+        binding.objectDetectionCheckbox.setOnCheckedChangeListener(null)
+        binding.objectDetectionCheckbox.isChecked = objectDetectionEnabled
+        binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
+    }
+
     private fun renderRecoveryState(uiState: PreviewUiState) {
         binding.recoveryCard.visibility = if (uiState.isSafeMode) View.VISIBLE else View.GONE
         if (!uiState.isSafeMode) {
@@ -369,6 +392,7 @@ class MainActivity : ComponentActivity() {
                 lastAppliedPreviewSize = null
             }
             binding.previewTextureView.clearContentAspectRatio()
+            binding.detectionOverlayView.clearContentAspectRatio()
             return
         }
         if (lastAppliedPreviewSize == previewSize) {
@@ -376,6 +400,7 @@ class MainActivity : ComponentActivity() {
         }
         lastAppliedPreviewSize = previewSize
         binding.previewTextureView.setContentAspectRatio(previewSize.width, previewSize.height)
+        binding.detectionOverlayView.setContentAspectRatio(previewSize.width, previewSize.height)
         appContainer.sessionLog.record(
             "MainActivity",
             "Applying fit-center preview aspect ratio ${previewSize.width}x${previewSize.height}"
@@ -388,6 +413,7 @@ class MainActivity : ComponentActivity() {
         }
         lastAppliedZoomFactor = zoomFactor
         binding.previewTextureView.setZoomFactor(zoomFactor)
+        binding.detectionOverlayView.setZoomFactor(zoomFactor)
         appContainer.sessionLog.record(
             "MainActivity",
             "Applying preview zoom scale ${String.format(Locale.US, "%.2f", zoomFactor)}"

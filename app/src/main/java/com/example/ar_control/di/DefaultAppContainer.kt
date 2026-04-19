@@ -6,12 +6,18 @@ import android.os.Environment
 import com.example.ar_control.camera.AndroidUvcLibraryAdapter
 import com.example.ar_control.camera.CameraSource
 import com.example.ar_control.camera.UvcCameraSource
+import com.example.ar_control.detection.DetectionPreferences
+import com.example.ar_control.detection.LiteRtYoloObjectDetector
+import com.example.ar_control.detection.NoOpObjectDetector
+import com.example.ar_control.detection.ObjectDetector
+import com.example.ar_control.detection.SharedPreferencesDetectionPreferences
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.PersistentSessionLog
 import com.example.ar_control.diagnostics.SessionLog
 import com.example.ar_control.recording.AndroidClipFileSharer
 import com.example.ar_control.recording.ClipFileSharer
 import com.example.ar_control.recording.ClipRepository
+import com.example.ar_control.recording.DetectionAnnotationSink
 import com.example.ar_control.recording.JsonClipRepository
 import com.example.ar_control.recording.MediaCodecVideoRecorder
 import com.example.ar_control.recording.RecordingPreferences
@@ -108,6 +114,17 @@ class DefaultAppContainer(
         SharedPreferencesRecordingPreferences(appContext)
     }
 
+    private val detectionPreferences: DetectionPreferences by lazy {
+        SharedPreferencesDetectionPreferences(appContext)
+    }
+
+    private val objectDetector: ObjectDetector by lazy {
+        LiteRtYoloObjectDetector(
+            context = appContext,
+            sessionLog = sessionLog
+        )
+    }
+
     private val recoveryManager: RecoveryManager by lazy {
         DefaultRecoveryManager(
             stateStore = FileRecoveryStateStore(
@@ -129,6 +146,13 @@ class DefaultAppContainer(
         )
     }
 
+    private val detectionAnnotationSink: DetectionAnnotationSink by lazy {
+        check(videoRecorder is DetectionAnnotationSink) {
+            "Configured video recorder does not support detection annotations"
+        }
+        videoRecorder as DetectionAnnotationSink
+    }
+
     override val clipFileSharer: ClipFileSharer by lazy {
         AndroidClipFileSharer(appContext)
     }
@@ -140,6 +164,9 @@ class DefaultAppContainer(
             usbPermissionGateway = usbPermissionGateway,
             cameraSource = cameraSource,
             recordingPreferences = recordingPreferences,
+            detectionPreferences = detectionPreferences,
+            objectDetector = objectDetector,
+            detectionAnnotationSink = detectionAnnotationSink,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,
             recoveryManager = recoveryManager,

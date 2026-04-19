@@ -6,6 +6,7 @@
     <string name="start_preview">Start Preview</string>
     <string name="stop_preview">Stop Preview</string>
     <string name="record_video">Record video</string>
+    <string name="object_detection">Object detection</string>
     <string name="recorded_clips">Recorded clips</string>
     <string name="no_recorded_clips">No recorded clips yet</string>
     <string name="open_clip">Open</string>

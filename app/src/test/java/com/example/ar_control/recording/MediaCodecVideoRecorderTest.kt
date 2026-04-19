@@ -289,7 +289,8 @@ class MediaCodecVideoRecorderTest {
         override fun create(
             outputFile: File,
             previewSize: PreviewSize,
-            sessionLog: com.example.ar_control.diagnostics.SessionLog
+            sessionLog: com.example.ar_control.diagnostics.SessionLog,
+            detectionAnnotationSnapshotProvider: () -> DetectionAnnotationSnapshot?
         ): MediaCodecVideoRecorder.RecorderEngine {
             return FakeRecorderEngine(
                 outputFile = outputFile,

@@ -3,8 +3,12 @@ package com.example.ar_control.ui.preview
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.ar_control.camera.CameraSource
+import com.example.ar_control.detection.DetectionPreferences
+import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
 import com.example.ar_control.recording.ClipRepository
+import com.example.ar_control.recording.DetectionAnnotationSink
+import com.example.ar_control.recording.NoOpDetectionAnnotationSink
 import com.example.ar_control.recording.RecordingPreferences
 import com.example.ar_control.recording.VideoRecorder
 import com.example.ar_control.recovery.RecoveryManager
@@ -18,6 +22,9 @@ class PreviewViewModelFactory(
     private val usbPermissionGateway: UsbPermissionGateway,
     private val cameraSource: CameraSource,
     private val recordingPreferences: RecordingPreferences,
+    private val detectionPreferences: DetectionPreferences,
+    private val objectDetector: ObjectDetector,
+    private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
     private val recoveryManager: RecoveryManager,
@@ -35,6 +42,9 @@ class PreviewViewModelFactory(
             usbPermissionGateway = usbPermissionGateway,
             cameraSource = cameraSource,
             recordingPreferences = recordingPreferences,
+            detectionPreferences = detectionPreferences,
+            objectDetector = objectDetector,
+            detectionAnnotationSink = detectionAnnotationSink,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,
             recoveryManager = recoveryManager,

@@ -65,6 +65,9 @@ android {
     buildFeatures {
         viewBinding = true
     }
+    androidResources {
+        noCompress += "tflite"
+    }
 }
 
 dependencies {
@@ -75,6 +78,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.runtime.ktx)
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.material)
+    implementation(libs.litert)
     implementation(project(":vendor:onexr"))
     implementation(project(":vendor:uvccamera"))
     testImplementation(libs.junit)

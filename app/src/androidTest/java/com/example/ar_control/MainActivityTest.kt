@@ -31,6 +31,9 @@ import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.di.AppContainer
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.InMemorySessionLog
+import com.example.ar_control.gemma.GemmaModelImporter
+import com.example.ar_control.gemma.GemmaSubtitlePreferences
+import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipFileSharer
 import com.example.ar_control.recording.ClipRepository
 import com.example.ar_control.recording.RecordedClip
@@ -56,6 +59,7 @@ import org.junit.runner.RunWith
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import java.io.ByteArrayInputStream
 
 @RunWith(AndroidJUnit4::class)
 class MainActivityTest {
@@ -312,6 +316,7 @@ private class FakeAppContainer(
         )
     )
     val detectionPreferences = FakeDetectionPreferences()
+    private val gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences()
     override val clipFileSharer = FakeClipFileSharer(context)
     override val previewViewModelFactory = PreviewViewModelFactory(
         glassesSession = FakeGlassesSession(),
@@ -321,6 +326,13 @@ private class FakeAppContainer(
         recordingPreferences = recordingPreferences,
         detectionPreferences = detectionPreferences,
         objectDetector = NoOpObjectDetector,
+        gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+        gemmaModelImporter = GemmaModelImporter(
+            targetDirectory = context.filesDir.resolve("test-gemma-models"),
+            preferences = FakeGemmaSubtitlePreferences(),
+            openInputStream = { ByteArrayInputStream(byteArrayOf(1, 2, 3)) }
+        ),
+        gemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
         clipRepository = clipRepository,
         videoRecorder = FakeVideoRecorder(),
         recoveryManager = recoveryManager,
@@ -379,6 +391,32 @@ private class FakeDetectionPreferences(
     override fun setObjectDetectionEnabled(enabled: Boolean) {
         this.enabled = enabled
         setCalls += 1
+    }
+}
+
+private class FakeGemmaSubtitlePreferences : GemmaSubtitlePreferences {
+    private var enabled = false
+    private var modelPath: String? = null
+    private var modelDisplayName: String? = null
+
+    override fun isGemmaSubtitlesEnabled(): Boolean = enabled
+
+    override fun setGemmaSubtitlesEnabled(enabled: Boolean) {
+        this.enabled = enabled
+    }
+
+    override fun getModelPath(): String? = modelPath
+
+    override fun getModelDisplayName(): String? = modelDisplayName
+
+    override fun setModel(path: String, displayName: String?) {
+        modelPath = path
+        modelDisplayName = displayName
+    }
+
+    override fun clearModel() {
+        modelPath = null
+        modelDisplayName = null
     }
 }
 

@@ -14,6 +14,11 @@ import com.example.ar_control.detection.SharedPreferencesDetectionPreferences
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.PersistentSessionLog
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.gemma.GemmaFrameCaptioner
+import com.example.ar_control.gemma.GemmaModelImporter
+import com.example.ar_control.gemma.GemmaSubtitlePreferences
+import com.example.ar_control.gemma.LiteRtGemmaFrameCaptioner
+import com.example.ar_control.gemma.SharedPreferencesGemmaSubtitlePreferences
 import com.example.ar_control.recording.AndroidClipFileSharer
 import com.example.ar_control.recording.ClipFileSharer
 import com.example.ar_control.recording.ClipRepository
@@ -118,6 +123,24 @@ class DefaultAppContainer(
         SharedPreferencesDetectionPreferences(appContext)
     }
 
+    private val gemmaSubtitlePreferences: GemmaSubtitlePreferences by lazy {
+        SharedPreferencesGemmaSubtitlePreferences(appContext)
+    }
+
+    private val gemmaModelImporter: GemmaModelImporter by lazy {
+        GemmaModelImporter(
+            context = appContext,
+            preferences = gemmaSubtitlePreferences
+        )
+    }
+
+    private val gemmaFrameCaptioner: GemmaFrameCaptioner by lazy {
+        LiteRtGemmaFrameCaptioner(
+            context = appContext,
+            sessionLog = sessionLog
+        )
+    }
+
     private val objectDetector: ObjectDetector by lazy {
         LiteRtYoloObjectDetector(
             context = appContext,
@@ -167,6 +190,9 @@ class DefaultAppContainer(
             detectionPreferences = detectionPreferences,
             objectDetector = objectDetector,
             detectionAnnotationSink = detectionAnnotationSink,
+            gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+            gemmaModelImporter = gemmaModelImporter,
+            gemmaFrameCaptioner = gemmaFrameCaptioner,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,
             recoveryManager = recoveryManager,

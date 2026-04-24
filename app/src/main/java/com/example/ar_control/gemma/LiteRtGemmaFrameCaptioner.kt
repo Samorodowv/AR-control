@@ -21,6 +21,7 @@ import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.launch
@@ -84,6 +85,10 @@ class LiteRtGemmaFrameCaptioner internal constructor(
         private val scope = CoroutineScope(SupervisorJob() + dispatcher)
         private val closed = AtomicBoolean(false)
         private val inFlight = AtomicBoolean(false)
+        private val closeLock = Any()
+        private var activeInferenceJob: Job? = null
+        private var modelClosed = false
+        private var closeRequested = false
         private var lastAcceptedAtMillis: Long? = null
 
         override val inputTarget: RecordingInputTarget.FrameCallbackTarget =
@@ -109,7 +114,7 @@ class LiteRtGemmaFrameCaptioner internal constructor(
             }
             lastAcceptedAtMillis = now
             val frameBytes = frame.copyRemainingBytes()
-            scope.launch {
+            val inferenceJob = scope.launch {
                 try {
                     val jpegBytes = Yuv420SpImageEncoder.encodeJpeg(frameBytes, previewSize)
                     val caption = sanitizeCaption(model.caption(jpegBytes))
@@ -126,7 +131,17 @@ class LiteRtGemmaFrameCaptioner internal constructor(
                     }
                 } finally {
                     inFlight.set(false)
+                    val shouldCloseModel = synchronized(closeLock) {
+                        activeInferenceJob = null
+                        closeRequested && !modelClosed
+                    }
+                    if (shouldCloseModel) {
+                        closeModelOnce()
+                    }
                 }
+            }
+            synchronized(closeLock) {
+                activeInferenceJob = inferenceJob
             }
         }
 
@@ -134,7 +149,29 @@ class LiteRtGemmaFrameCaptioner internal constructor(
             if (!closed.compareAndSet(false, true)) {
                 return
             }
-            scope.cancel()
+            val jobToWaitFor = synchronized(closeLock) {
+                closeRequested = true
+                activeInferenceJob?.takeUnless { inferenceJob -> inferenceJob.isCompleted }
+            }
+            if (jobToWaitFor == null) {
+                closeModelOnce()
+            } else {
+                jobToWaitFor.invokeOnCompletion { closeModelOnce() }
+            }
+        }
+
+        private fun closeModelOnce() {
+            val shouldClose = synchronized(closeLock) {
+                if (modelClosed) {
+                    false
+                } else {
+                    modelClosed = true
+                    true
+                }
+            }
+            if (!shouldClose) {
+                return
+            }
             runCatching { model.close() }
                 .onFailure { exception ->
                     sessionLog.record(
@@ -142,6 +179,7 @@ class LiteRtGemmaFrameCaptioner internal constructor(
                         "Model close failed: ${exception.message ?: exception::class.java.simpleName}"
                     )
                 }
+            scope.cancel()
         }
     }
 }
@@ -168,26 +206,31 @@ internal class LiteRtGemmaCaptionModel(
     private val modelPath: String,
     private val cacheDir: String
 ) : GemmaCaptionModel {
+    private val modelLock = Any()
     private var engine: Engine? = null
     private var conversation: Conversation? = null
 
     override suspend fun caption(jpegBytes: ByteArray): String {
-        val response = conversation().sendMessage(
-            Contents.of(
-                Content.ImageBytes(jpegBytes),
-                Content.Text(CAPTION_PROMPT)
+        return synchronized(modelLock) {
+            val response = conversation().sendMessage(
+                Contents.of(
+                    Content.ImageBytes(jpegBytes),
+                    Content.Text(CAPTION_PROMPT)
+                )
             )
-        )
-        return response.contents.contents
-            .filterIsInstance<Content.Text>()
-            .joinToString(separator = " ") { content -> content.text }
+            response.contents.contents
+                .filterIsInstance<Content.Text>()
+                .joinToString(separator = " ") { content -> content.text }
+        }
     }
 
     override fun close() {
-        runCatching { conversation?.close() }
-        runCatching { engine?.close() }
-        conversation = null
-        engine = null
+        synchronized(modelLock) {
+            runCatching { conversation?.close() }
+            runCatching { engine?.close() }
+            conversation = null
+            engine = null
+        }
     }
 
     private fun conversation(): Conversation {

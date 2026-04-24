@@ -5,6 +5,7 @@ import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.recording.VideoFramePixelFormat
 import java.nio.ByteBuffer
 import kotlinx.coroutines.ExperimentalCoroutinesApi
+import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.StandardTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
@@ -104,6 +105,48 @@ class LiteRtGemmaFrameCaptionerTest {
         assertEquals(1, model.closeCalls)
     }
 
+    @Test
+    fun closeDefersModelCloseUntilInFlightCaptionExits() = runTest {
+        val captionStarted = CompletableDeferred<Unit>()
+        val allowCaptionToFinish = CompletableDeferred<Unit>()
+        val model = FakeGemmaCaptionModel(
+            caption = "A Desk.",
+            beforeCaptionReturns = {
+                captionStarted.complete(Unit)
+                allowCaptionToFinish.await()
+            }
+        )
+        val captioner = LiteRtGemmaFrameCaptioner(
+            modelFactory = { model },
+            dispatcher = StandardTestDispatcher(testScheduler),
+            clock = { 1_000L }
+        )
+        val captions = mutableListOf<String>()
+        val errors = mutableListOf<String>()
+        val session = captioner.start(
+            modelPath = "model.task",
+            previewSize = PreviewSize(width = 2, height = 2),
+            onCaptionUpdated = captions::add,
+            onError = errors::add
+        )
+
+        session.inputTarget.frameConsumer.onFrame(testYuv420SpFrame(), 1L)
+        advanceUntilIdle()
+        captionStarted.await()
+
+        session.close()
+        advanceUntilIdle()
+
+        assertEquals(0, model.closeCalls)
+
+        allowCaptionToFinish.complete(Unit)
+        advanceUntilIdle()
+
+        assertEquals(1, model.closeCalls)
+        assertEquals(emptyList<String>(), captions)
+        assertEquals(emptyList<String>(), errors)
+    }
+
     private fun testYuv420SpFrame(): ByteBuffer {
         return ByteBuffer.wrap(
             byteArrayOf(
@@ -115,7 +158,8 @@ class LiteRtGemmaFrameCaptionerTest {
 
     private class FakeGemmaCaptionModel(
         private val caption: String = "",
-        private val captionFailure: Exception? = null
+        private val captionFailure: Exception? = null,
+        private val beforeCaptionReturns: suspend () -> Unit = {}
     ) : GemmaCaptionModel {
         var captionCalls = 0
             private set
@@ -124,6 +168,7 @@ class LiteRtGemmaFrameCaptionerTest {
 
         override suspend fun caption(jpegBytes: ByteArray): String {
             captionCalls += 1
+            beforeCaptionReturns()
             captionFailure?.let { throw it }
             return caption
         }

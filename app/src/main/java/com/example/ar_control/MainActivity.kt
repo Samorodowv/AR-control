@@ -245,25 +245,31 @@ class MainActivity : ComponentActivity() {
         render(uiState)
     }
 
-    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+    override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (latestUiState.isPreviewRunning) {
-            when (event.keyCode) {
+            when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
-                    if (event.action == KeyEvent.ACTION_DOWN) {
-                        previewViewModel.zoomInPreview()
-                    }
+                    previewViewModel.zoomInPreview()
                     return true
                 }
 
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    if (event.action == KeyEvent.ACTION_DOWN) {
-                        previewViewModel.zoomOutPreview()
-                    }
+                    previewViewModel.zoomOutPreview()
                     return true
                 }
             }
         }
-        return super.dispatchKeyEvent(event)
+        return super.onKeyDown(keyCode, event)
+    }
+
+    override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
+        if (
+            latestUiState.isPreviewRunning &&
+            (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)
+        ) {
+            return true
+        }
+        return super.onKeyUp(keyCode, event)
     }
 
     private fun render(uiState: PreviewUiState) {

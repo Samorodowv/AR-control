@@ -95,62 +95,16 @@ sealed interface GemmaModelImportResult {
 }
 
 class GemmaModelImporter internal constructor(
-    private val targetDirectory: File,
-    private val preferences: GemmaSubtitlePreferences,
-    private val openInputStream: (Uri) -> InputStream?,
     private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
 ) {
 
     constructor(
         context: Context,
         preferences: GemmaSubtitlePreferences
-    ) : this(
-        targetDirectory = File(context.applicationContext.filesDir, MODEL_DIRECTORY_NAME),
-        preferences = preferences,
-        openInputStream = { uri -> context.applicationContext.contentResolver.openInputStream(uri) }
-    )
+    ) : this()
 
     suspend fun importModel(uri: Uri, displayName: String?): GemmaModelImportResult = withContext(ioDispatcher) {
-        val source = try {
-            openInputStream(uri)
-        } catch (error: Exception) {
-            if (error is CancellationException) throw error
-            null
-        } ?: return@withContext GemmaModelImportResult.Failed(COULD_NOT_OPEN_REASON)
-
-        var tempFile: File? = null
-        try {
-            targetDirectory.mkdirs()
-            val targetFile = File(targetDirectory, MODEL_FILE_NAME)
-            tempFile = File.createTempFile(MODEL_FILE_NAME, ".tmp", targetDirectory)
-            tempFile.outputStream().use { output ->
-                source.copyTo(output)
-            }
-            Files.move(
-                tempFile.toPath(),
-                targetFile.toPath(),
-                StandardCopyOption.ATOMIC_MOVE,
-                StandardCopyOption.REPLACE_EXISTING
-            )
-
-            val targetPath = targetFile.absolutePath
-            val safeDisplayName = displayName.safeDisplayName()
-            preferences.setModel(targetPath, safeDisplayName)
-
-            GemmaModelImportResult.Imported(targetPath, safeDisplayName)
-        } catch (error: Exception) {
-            tempFile?.delete()
-            if (error is CancellationException) throw error
-            GemmaModelImportResult.Failed(COULD_NOT_IMPORT_REASON)
-        } finally {
-            runCatching { source.close() }
-        }
-    }
-
-    private fun String?.safeDisplayName(): String {
-        val trimmed = this?.trim().orEmpty()
-        val basename = trimmed.substringAfterLast('/').substringAfterLast('\\')
-        return basename.takeIf { it.isNotBlank() } ?: MODEL_FILE_NAME
+        GemmaModelImportResult.Failed(MUST_DOWNLOAD_REASON)
     }
 }
 
@@ -205,8 +159,7 @@ private const val MODEL_DISPLAY_NAME = "gemma-4-E2B-it.litertlm"
 private const val MODEL_URL =
     "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true"
 private const val COULD_NOT_DOWNLOAD_REASON = "Could not download Gemma model"
-private const val COULD_NOT_OPEN_REASON = "Could not open selected Gemma model"
-private const val COULD_NOT_IMPORT_REASON = "Could not import selected Gemma model"
+private const val MUST_DOWNLOAD_REASON = "Gemma model must be downloaded from the public source"
 private const val CONNECT_TIMEOUT_MILLIS = 15_000
 private const val READ_TIMEOUT_MILLIS = 30_000
 private const val COPY_BUFFER_SIZE_BYTES = 128 * 1024

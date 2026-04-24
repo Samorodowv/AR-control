@@ -9,6 +9,7 @@ import java.net.HttpURLConnection
 import java.net.URL
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
@@ -28,7 +29,8 @@ sealed interface GemmaModelDownloadResult {
 
 internal data class GemmaModelDownloadSource(
     val url: URL,
-    val displayName: String
+    val displayName: String,
+    val expectedSha256Hex: String
 )
 
 internal class GemmaModelDownloadStream(
@@ -70,8 +72,11 @@ class GemmaModelDownloader internal constructor(
             targetDirectory.mkdirs()
             val targetFile = File(targetDirectory, MODEL_FILE_NAME)
             tempFile = File.createTempFile(MODEL_FILE_NAME, ".tmp", targetDirectory)
-            copyWithProgress(stream.inputStream, tempFile, stream.contentLengthBytes, onProgress)
+            val actualSha256Hex = copyWithProgress(stream.inputStream, tempFile, stream.contentLengthBytes, onProgress)
             currentCoroutineContext().ensureActive()
+            if (!actualSha256Hex.equals(source.expectedSha256Hex, ignoreCase = true)) {
+                throw IOException("Gemma model checksum mismatch")
+            }
             Files.move(
                 tempFile.toPath(),
                 targetFile.toPath(),
@@ -92,6 +97,9 @@ class GemmaModelDownloader internal constructor(
 }
 
 private fun openHttpsStream(url: URL): GemmaModelDownloadStream {
+    if (!url.protocol.equals("https", ignoreCase = true)) {
+        throw IOException("Gemma model download URL must use HTTPS")
+    }
     val connection = url.openConnection()
     connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
     connection.readTimeout = READ_TIMEOUT_MILLIS
@@ -119,7 +127,8 @@ private suspend fun copyWithProgress(
     targetFile: File,
     totalBytes: Long?,
     onProgress: (GemmaModelDownloadProgress) -> Unit
-) {
+): String {
+    val digest = MessageDigest.getInstance("SHA-256")
     var bytesDownloaded = 0L
     onProgress(GemmaModelDownloadProgress(bytesDownloaded, totalBytes))
     currentCoroutineContext().ensureActive()
@@ -132,21 +141,28 @@ private suspend fun copyWithProgress(
                 break
             }
             output.write(buffer, 0, read)
+            digest.update(buffer, 0, read)
             bytesDownloaded += read.toLong()
             onProgress(GemmaModelDownloadProgress(bytesDownloaded, totalBytes))
             currentCoroutineContext().ensureActive()
         }
     }
     currentCoroutineContext().ensureActive()
+    return digest.digest().toHexString()
 }
+
+private fun ByteArray.toHexString(): String =
+    joinToString(separator = "") { byte -> "%02x".format(byte) }
 
 private const val MODEL_DIRECTORY_NAME = "models"
 private const val MODEL_FILE_NAME = "gemma-subtitles.litertlm"
 private const val MODEL_DISPLAY_NAME = "gemma-4-E2B-it.litertlm"
 private const val MODEL_URL =
-    "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true"
+    "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/7022fb75cac85d830562b14e8b583bdb7f8cb322/gemma-4-E2B-it.litertlm?download=true"
+private const val MODEL_SHA256_HEX =
+    "ab7838cdfc8f77e54d8ca45eadceb20452d9f01e4bfade03e5dce27911b27e42"
 private const val COULD_NOT_DOWNLOAD_REASON = "Could not download Gemma model"
 private const val CONNECT_TIMEOUT_MILLIS = 15_000
 private const val READ_TIMEOUT_MILLIS = 30_000
 private const val COPY_BUFFER_SIZE_BYTES = 128 * 1024
-private val DEFAULT_SOURCE = GemmaModelDownloadSource(URL(MODEL_URL), MODEL_DISPLAY_NAME)
+private val DEFAULT_SOURCE = GemmaModelDownloadSource(URL(MODEL_URL), MODEL_DISPLAY_NAME, MODEL_SHA256_HEX)

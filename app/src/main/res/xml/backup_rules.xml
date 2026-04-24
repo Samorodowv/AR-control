@@ -6,8 +6,10 @@
    See https://developer.android.com/about/versions/12/backup-restore
 -->
 <full-backup-content>
-    <!--
-   <include domain="sharedpref" path="."/>
-   <exclude domain="sharedpref" path="device.xml"/>
--->
+    <exclude
+        domain="file"
+        path="models/" />
+    <exclude
+        domain="sharedpref"
+        path="gemma_subtitle_prefs.xml" />
 </full-backup-content>

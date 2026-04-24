@@ -6,6 +6,7 @@ import java.io.IOException
 import java.io.InputStream
 import java.net.URL
 import java.nio.file.Files
+import java.security.MessageDigest
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Job
@@ -36,7 +37,8 @@ class GemmaModelDownloaderTest {
             preferences = preferences,
             source = GemmaModelDownloadSource(
                 url = sourceUrl,
-                displayName = "gemma-4-E2B-it.litertlm"
+                displayName = "gemma-4-E2B-it.litertlm",
+                expectedSha256Hex = sha256Hex(sourceBytes)
             ),
             openStream = { url ->
                 openedUrl = url
@@ -76,6 +78,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
+            expectedSha256Hex = sha256Hex(newBytes),
             openStream = { _ ->
                 GemmaModelDownloadStream(
                     inputStream = ByteArrayInputStream(newBytes),
@@ -107,6 +110,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
+            expectedSha256Hex = sha256Hex(byteArrayOf(5, 6)),
             openStream = { _ ->
                 GemmaModelDownloadStream(
                     inputStream = ByteArrayInputStream(byteArrayOf(5, 6)),
@@ -147,6 +151,39 @@ class GemmaModelDownloaderTest {
         val result = downloader.downloadModel()
 
         assertEquals(GemmaModelDownloadResult.Failed("Could not download Gemma model"), result)
+        assertArrayEquals(existingBytes, existingModel.readBytes())
+        assertEquals(existingModel.absolutePath, preferences.getModelPath())
+        assertEquals("existing.litertlm", preferences.getModelDisplayName())
+    }
+
+    @Test
+    fun downloadModelKeepsExistingModelAndPreferencesWhenChecksumDoesNotMatch() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-checksum-mismatch-test").toFile()
+        val existingBytes = byteArrayOf(50, 51, 52, 53)
+        val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
+            parentFile?.mkdirs()
+            writeBytes(existingBytes)
+        }
+        val preferences = FakeGemmaSubtitlePreferences().apply {
+            setModel(existingModel.absolutePath, "existing.litertlm")
+        }
+        val newBytes = byteArrayOf(1, 2, 3, 4)
+        val downloader = newDownloader(
+            targetDirectory = targetDirectory,
+            preferences = preferences,
+            expectedSha256Hex = sha256Hex(byteArrayOf(9, 9, 9, 9)),
+            openStream = { _ ->
+                GemmaModelDownloadStream(
+                    inputStream = ByteArrayInputStream(newBytes),
+                    contentLengthBytes = newBytes.size.toLong()
+                )
+            }
+        )
+
+        val result = downloader.downloadModel()
+
+        assertEquals(GemmaModelDownloadResult.Failed("Could not download Gemma model"), result)
+        assertTrue(targetDirectory.listFiles { file -> file.extension == "tmp" }.orEmpty().isEmpty())
         assertArrayEquals(existingBytes, existingModel.readBytes())
         assertEquals(existingModel.absolutePath, preferences.getModelPath())
         assertEquals("existing.litertlm", preferences.getModelDisplayName())
@@ -340,16 +377,23 @@ class GemmaModelDownloaderTest {
     private fun newDownloader(
         targetDirectory: File,
         preferences: GemmaSubtitlePreferences,
+        expectedSha256Hex: String = sha256Hex(ByteArray(0)),
         openStream: (URL) -> GemmaModelDownloadStream?
     ): GemmaModelDownloader = GemmaModelDownloader(
         targetDirectory = targetDirectory,
         preferences = preferences,
         source = GemmaModelDownloadSource(
             url = URL("https://example.test/gemma.litertlm"),
-            displayName = "gemma-4-E2B-it.litertlm"
+            displayName = "gemma-4-E2B-it.litertlm",
+            expectedSha256Hex = expectedSha256Hex
         ),
         openStream = openStream
     )
+}
+
+private fun sha256Hex(bytes: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+    return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
 
 private class CloseThrowingInputStream(

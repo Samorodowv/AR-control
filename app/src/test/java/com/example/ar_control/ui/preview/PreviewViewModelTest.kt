@@ -33,6 +33,7 @@ import java.io.ByteArrayInputStream
 import java.io.Closeable
 import java.net.URL
 import java.nio.file.Files
+import java.security.MessageDigest
 import com.example.ar_control.usb.EyeUsbConfigurator
 import com.example.ar_control.usb.UsbPermissionGateway
 import com.example.ar_control.xreal.GlassesSession
@@ -258,7 +259,8 @@ class PreviewViewModelTest {
             preferences = preferences,
             source = GemmaModelDownloadSource(
                 url = URL("https://example.test/gemma.litertlm"),
-                displayName = "gemma-4-E2B-it.litertlm"
+                displayName = "gemma-4-E2B-it.litertlm",
+                expectedSha256Hex = sha256Hex(byteArrayOf(1, 2, 3))
             ),
             openStream = {
                 GemmaModelDownloadStream(
@@ -292,7 +294,8 @@ class PreviewViewModelTest {
             preferences = preferences,
             source = GemmaModelDownloadSource(
                 url = URL("https://example.test/gemma.litertlm"),
-                displayName = "gemma-4-E2B-it.litertlm"
+                displayName = "gemma-4-E2B-it.litertlm",
+                expectedSha256Hex = sha256Hex(byteArrayOf(1, 2, 3))
             ),
             openStream = {
                 openStreamCalls += 1
@@ -326,7 +329,8 @@ class PreviewViewModelTest {
             preferences = preferences,
             source = GemmaModelDownloadSource(
                 url = URL("https://example.test/gemma.litertlm"),
-                displayName = "gemma-4-E2B-it.litertlm"
+                displayName = "gemma-4-E2B-it.litertlm",
+                expectedSha256Hex = sha256Hex(ByteArray(0))
             ),
             openStream = { null },
             ioDispatcher = dispatcher
@@ -1511,6 +1515,11 @@ private class FakeGemmaFrameCaptioner : GemmaFrameCaptioner {
             sessions += it
         }
     }
+}
+
+private fun sha256Hex(bytes: ByteArray): String {
+    val digest = MessageDigest.getInstance("SHA-256").digest(bytes)
+    return digest.joinToString(separator = "") { byte -> "%02x".format(byte) }
 }
 
 private class FakeGemmaCaptionSession(

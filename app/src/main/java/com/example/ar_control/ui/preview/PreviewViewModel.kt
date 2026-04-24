@@ -262,8 +262,13 @@ class PreviewViewModel(
     }
 
     private fun onGemmaModelDownloadProgress(progress: GemmaModelDownloadProgress) {
-        _uiState.value = applyRecoveryState(_uiState.value.copy(
-            gemmaModelDownloadProgressText = progress.toStatusText()
+        val nextStatusText = progress.toStatusText()
+        val currentState = _uiState.value
+        if (currentState.gemmaModelDownloadProgressText == nextStatusText) {
+            return
+        }
+        _uiState.value = applyRecoveryState(currentState.copy(
+            gemmaModelDownloadProgressText = nextStatusText
         ))
     }
 

@@ -3,6 +3,7 @@ package com.example.ar_control.gemma
 import com.example.ar_control.ArControlApp
 import com.example.ar_control.camera.PreviewSize
 import org.junit.Assert.assertArrayEquals
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import org.junit.runner.RunWith
@@ -57,4 +58,34 @@ class Yuv420SpImageEncoderTest {
         assertTrue(jpegBytes[0] == 0xFF.toByte())
         assertTrue(jpegBytes[1] == 0xD8.toByte())
     }
+
+    @Test
+    fun fallbackArgbConversion_usesLimitedRangeYuvCoefficients() {
+        val previewSize = PreviewSize(width = 2, height = 2)
+        val nv21 = byteArrayOf(
+            0x52,
+            0x52,
+            0x52,
+            0x52,
+            0x5A,
+            0xF0.toByte()
+        )
+
+        val pixels = Yuv420SpImageEncoder.convertNv21ToArgbPixelsForFallback(
+            nv21 = nv21,
+            previewSize = previewSize
+        )
+
+        val pixel = pixels.first()
+        assertEquals(0xFF, pixel ushr 24)
+        assertEquals(16, pixel.red())
+        assertEquals(64, pixel.green())
+        assertEquals(255, pixel.blue())
+    }
+
+    private fun Int.red(): Int = (this shr 16) and 0xFF
+
+    private fun Int.green(): Int = (this shr 8) and 0xFF
+
+    private fun Int.blue(): Int = this and 0xFF
 }

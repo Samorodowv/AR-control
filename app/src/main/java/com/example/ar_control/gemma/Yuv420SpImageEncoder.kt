@@ -73,27 +73,51 @@ object Yuv420SpImageEncoder {
     ): ByteArray {
         val width = previewSize.width
         val height = previewSize.height
-        val yPlaneSize = width * height
-        val pixels = IntArray(yPlaneSize)
-
-        for (y in 0 until height) {
-            for (x in 0 until width) {
-                val yValue = nv21[(y * width) + x].toInt() and 0xFF
-                val chromaIndex = yPlaneSize + ((y / 2) * width) + ((x / 2) * 2)
-                val v = (nv21[chromaIndex].toInt() and 0xFF) - 128
-                val u = (nv21[chromaIndex + 1].toInt() and 0xFF) - 128
-                val r = (yValue + (1.402f * v)).toInt().coerceIn(0, 255)
-                val g = (yValue - (0.344136f * u) - (0.714136f * v)).toInt().coerceIn(0, 255)
-                val b = (yValue + (1.772f * u)).toInt().coerceIn(0, 255)
-                pixels[(y * width) + x] = Color.rgb(r, g, b)
-            }
-        }
-
+        val pixels = convertNv21ToArgbPixelsForFallback(nv21, previewSize)
         val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
         return ByteArrayOutputStream().use { output ->
             bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
             output.toByteArray()
         }
+    }
+
+    internal fun convertNv21ToArgbPixelsForFallback(
+        nv21: ByteArray,
+        previewSize: PreviewSize
+    ): IntArray {
+        val width = previewSize.width
+        val height = previewSize.height
+        val expectedSize = expectedYuv420SpByteCount(previewSize)
+        require(nv21.size == expectedSize) {
+            "Expected $expectedSize bytes for ${width}x$height NV21 frame, got ${nv21.size}"
+        }
+
+        val yPlaneSize = width * height
+        val pixels = IntArray(yPlaneSize)
+        for (y in 0 until height) {
+            for (x in 0 until width) {
+                val yValue = nv21[(y * width) + x].toInt() and 0xFF
+                val chromaIndex = yPlaneSize + ((y / 2) * width) + ((x / 2) * 2)
+                val v = nv21[chromaIndex].toInt() and 0xFF
+                val u = nv21[chromaIndex + 1].toInt() and 0xFF
+                pixels[(y * width) + x] = limitedRangeYuvToArgb(
+                    y = yValue,
+                    u = u,
+                    v = v
+                )
+            }
+        }
+        return pixels
+    }
+
+    private fun limitedRangeYuvToArgb(y: Int, u: Int, v: Int): Int {
+        val c = (y - 16).coerceAtLeast(0)
+        val d = u - 128
+        val e = v - 128
+        val red = ((298 * c + 409 * e + 128) shr 8).coerceIn(0, 255)
+        val green = ((298 * c - 100 * d - 208 * e + 128) shr 8).coerceIn(0, 255)
+        val blue = ((298 * c + 516 * d + 128) shr 8).coerceIn(0, 255)
+        return Color.rgb(red, green, blue)
     }
 
     private const val DEFAULT_JPEG_QUALITY = 70

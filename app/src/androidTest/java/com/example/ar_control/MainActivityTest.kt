@@ -39,6 +39,7 @@ import com.example.ar_control.recording.RecordingPreferences
 import com.example.ar_control.recording.VideoRecorder
 import com.example.ar_control.recovery.RecoveryManager
 import com.example.ar_control.recovery.RecoverySnapshot
+import com.example.ar_control.ui.preview.PreviewUiState
 import com.example.ar_control.ui.preview.PreviewViewModelFactory
 import com.example.ar_control.usb.EyeUsbConfigurator
 import com.example.ar_control.usb.UsbPermissionGateway
@@ -162,6 +163,37 @@ class MainActivityTest {
             onView(withText("Open")).check(matches(not(isEnabled())))
             onView(withText("Share")).check(matches(not(isEnabled())))
             onView(withText("Delete")).check(matches(not(isEnabled())))
+        }
+    }
+
+    @Test
+    fun gemmaControlsAreVisibleOnControlScreen() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            onView(withId(R.id.gemmaSubtitlesCheckbox)).check(matches(isDisplayed()))
+            onView(withId(R.id.importGemmaModelButton)).check(matches(isDisplayed()))
+            onView(withId(R.id.gemmaModelStatusText)).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test
+    fun gemmaSubtitlePillIsHiddenUntilPreviewCaptionExists() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withId(R.id.gemmaSubtitleText)).check(
+                matches(withEffectiveVisibility(Visibility.GONE))
+            )
+
+            scenario.onActivity { activity ->
+                activity.renderForTest(
+                    PreviewUiState(
+                        isPreviewRunning = true,
+                        previewSize = PreviewSize(640, 480),
+                        gemmaSubtitleText = "a desk with a monitor"
+                    )
+                )
+            }
+
+            onView(withId(R.id.gemmaSubtitleText)).check(matches(isDisplayed()))
+            onView(withId(R.id.gemmaSubtitleText)).check(matches(withText("a desk with a monitor")))
         }
     }
 

@@ -7,6 +7,10 @@
     <string name="stop_preview">Stop Preview</string>
     <string name="record_video">Record video</string>
     <string name="object_detection">Object detection</string>
+    <string name="gemma_subtitles">Gemma subtitles</string>
+    <string name="import_gemma_model">Import Gemma model</string>
+    <string name="gemma_model_not_configured">Gemma model: not configured</string>
+    <string name="gemma_model_configured">Gemma model: %1$s</string>
     <string name="recorded_clips">Recorded clips</string>
     <string name="no_recorded_clips">No recorded clips yet</string>
     <string name="open_clip">Open</string>

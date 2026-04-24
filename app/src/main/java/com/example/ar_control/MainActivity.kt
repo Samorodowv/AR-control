@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var recordedClipAdapter: RecordedClipAdapter
     private lateinit var recordVideoCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private lateinit var objectDetectionCheckedChangeListener: CompoundButton.OnCheckedChangeListener
+    private lateinit var gemmaSubtitlesCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private val previewBackButtonBaseMargin by lazy {
         resources.getDimensionPixelSize(R.dimen.preview_back_button_margin)
     }
@@ -106,6 +107,13 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
+    private val gemmaModelPickerLauncher = registerForActivityResult(
+        ActivityResultContracts.OpenDocument()
+    ) { uri ->
+        if (uri != null) {
+            previewViewModel.importGemmaModel(uri, uri.lastPathSegment)
+        }
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -134,6 +142,14 @@ class MainActivity : ComponentActivity() {
                 )
                 previewViewModel.setObjectDetectionEnabled(isChecked)
             }
+        gemmaSubtitlesCheckedChangeListener =
+            CompoundButton.OnCheckedChangeListener { _, isChecked ->
+                appContainer.sessionLog.record(
+                    "MainActivity",
+                    "Gemma subtitles checkbox changed: $isChecked"
+                )
+                previewViewModel.setGemmaSubtitlesEnabled(isChecked)
+            }
 
         previewBackPressedCallback = onBackPressedDispatcher.addCallback(this, false) {
             appContainer.sessionLog.record("MainActivity", "Hardware back pressed in fullscreen preview")
@@ -161,6 +177,11 @@ class MainActivity : ComponentActivity() {
         }
         binding.recordVideoCheckbox.setOnCheckedChangeListener(recordVideoCheckedChangeListener)
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
+        binding.gemmaSubtitlesCheckbox.setOnCheckedChangeListener(gemmaSubtitlesCheckedChangeListener)
+        binding.importGemmaModelButton.setOnClickListener {
+            appContainer.sessionLog.record("MainActivity", "Import Gemma model tapped")
+            gemmaModelPickerLauncher.launch(arrayOf("*/*"))
+        }
         binding.openClipButton.setOnClickListener {
             latestUiState.selectedClip?.let { clip ->
                 openClipSafely(clip)
@@ -220,6 +241,10 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    internal fun renderForTest(uiState: PreviewUiState) {
+        render(uiState)
+    }
+
     override fun dispatchKeyEvent(event: KeyEvent): Boolean {
         if (latestUiState.isPreviewRunning) {
             when (event.keyCode) {
@@ -251,8 +276,13 @@ class MainActivity : ComponentActivity() {
         binding.stopPreviewButton.isEnabled = uiState.canStopPreview
         renderRecordVideoCheckbox(uiState.recordVideoEnabled)
         renderObjectDetectionCheckbox(uiState.objectDetectionEnabled)
+        renderGemmaSubtitlesCheckbox(uiState.gemmaSubtitlesEnabled)
         binding.recordVideoCheckbox.isEnabled = uiState.canChangeRecordVideo
         binding.objectDetectionCheckbox.isEnabled = uiState.canChangeObjectDetection
+        binding.gemmaSubtitlesCheckbox.isEnabled = uiState.canChangeGemmaSubtitles
+        binding.gemmaModelStatusText.text = uiState.gemmaModelDisplayName?.let { displayName ->
+            getString(R.string.gemma_model_configured, displayName)
+        } ?: getString(R.string.gemma_model_not_configured)
         binding.openClipButton.isEnabled = uiState.canOpenSelectedClip
         binding.shareClipButton.isEnabled = uiState.canShareSelectedClip
         binding.deleteClipButton.isEnabled = uiState.canDeleteSelectedClip
@@ -268,6 +298,13 @@ class MainActivity : ComponentActivity() {
         binding.previewContainer.isFocusable = uiState.isPreviewRunning
         binding.detectionOverlayView.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
         binding.detectionOverlayView.setDetections(uiState.detectedObjects)
+        binding.gemmaSubtitleText.text = uiState.gemmaSubtitleText
+        binding.gemmaSubtitleText.visibility =
+            if (uiState.isPreviewRunning && uiState.gemmaSubtitleText.isNotBlank()) {
+                View.VISIBLE
+            } else {
+                View.GONE
+            }
         binding.previewBackButton.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
         binding.previewBackButton.isEnabled = uiState.isPreviewRunning
 
@@ -345,6 +382,15 @@ class MainActivity : ComponentActivity() {
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(null)
         binding.objectDetectionCheckbox.isChecked = objectDetectionEnabled
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
+    }
+
+    private fun renderGemmaSubtitlesCheckbox(gemmaSubtitlesEnabled: Boolean) {
+        if (binding.gemmaSubtitlesCheckbox.isChecked == gemmaSubtitlesEnabled) {
+            return
+        }
+        binding.gemmaSubtitlesCheckbox.setOnCheckedChangeListener(null)
+        binding.gemmaSubtitlesCheckbox.isChecked = gemmaSubtitlesEnabled
+        binding.gemmaSubtitlesCheckbox.setOnCheckedChangeListener(gemmaSubtitlesCheckedChangeListener)
     }
 
     private fun renderRecoveryState(uiState: PreviewUiState) {

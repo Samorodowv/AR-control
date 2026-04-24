@@ -15,7 +15,7 @@ import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.PersistentSessionLog
 import com.example.ar_control.diagnostics.SessionLog
 import com.example.ar_control.gemma.GemmaFrameCaptioner
-import com.example.ar_control.gemma.GemmaModelImporter
+import com.example.ar_control.gemma.GemmaModelDownloader
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.gemma.LiteRtGemmaFrameCaptioner
 import com.example.ar_control.gemma.SharedPreferencesGemmaSubtitlePreferences
@@ -127,8 +127,8 @@ class DefaultAppContainer(
         SharedPreferencesGemmaSubtitlePreferences(appContext)
     }
 
-    private val gemmaModelImporter: GemmaModelImporter by lazy {
-        GemmaModelImporter(
+    private val gemmaModelDownloader: GemmaModelDownloader by lazy {
+        GemmaModelDownloader(
             context = appContext,
             preferences = gemmaSubtitlePreferences
         )
@@ -191,7 +191,7 @@ class DefaultAppContainer(
             objectDetector = objectDetector,
             detectionAnnotationSink = detectionAnnotationSink,
             gemmaSubtitlePreferences = gemmaSubtitlePreferences,
-            gemmaModelImporter = gemmaModelImporter,
+            gemmaModelDownloader = gemmaModelDownloader,
             gemmaFrameCaptioner = gemmaFrameCaptioner,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,

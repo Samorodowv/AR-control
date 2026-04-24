@@ -8,7 +8,6 @@ import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
 import com.example.ar_control.gemma.GemmaFrameCaptioner
 import com.example.ar_control.gemma.GemmaModelDownloader
-import com.example.ar_control.gemma.GemmaModelImporter
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipRepository
@@ -31,8 +30,6 @@ class PreviewViewModelFactory(
     private val objectDetector: ObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
-    @Suppress("unused")
-    private val gemmaModelImporter: GemmaModelImporter? = null,
     private val gemmaModelDownloader: GemmaModelDownloader? = null,
     private val gemmaFrameCaptioner: GemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
     private val clipRepository: ClipRepository,

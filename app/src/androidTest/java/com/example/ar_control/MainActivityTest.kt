@@ -31,7 +31,6 @@ import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.di.AppContainer
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.InMemorySessionLog
-import com.example.ar_control.gemma.GemmaModelImporter
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipFileSharer
@@ -59,7 +58,6 @@ import org.junit.runner.RunWith
 import androidx.test.rule.GrantPermissionRule
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
-import java.io.ByteArrayInputStream
 
 @RunWith(AndroidJUnit4::class)
 class MainActivityTest {
@@ -327,11 +325,6 @@ private class FakeAppContainer(
         detectionPreferences = detectionPreferences,
         objectDetector = NoOpObjectDetector,
         gemmaSubtitlePreferences = gemmaSubtitlePreferences,
-        gemmaModelImporter = GemmaModelImporter(
-            targetDirectory = context.filesDir.resolve("test-gemma-models"),
-            preferences = gemmaSubtitlePreferences,
-            openInputStream = { ByteArrayInputStream(byteArrayOf(1, 2, 3)) }
-        ),
         gemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
         clipRepository = clipRepository,
         videoRecorder = FakeVideoRecorder(),

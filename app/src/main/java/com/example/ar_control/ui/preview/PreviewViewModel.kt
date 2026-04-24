@@ -261,9 +261,6 @@ class PreviewViewModel(
         }
     }
 
-    @Suppress("UNUSED_PARAMETER")
-    fun importGemmaModel(uri: Any, displayName: String?) = Unit
-
     private fun onGemmaModelDownloadProgress(progress: GemmaModelDownloadProgress) {
         _uiState.value = applyRecoveryState(_uiState.value.copy(
             gemmaModelDownloadProgressText = progress.toStatusText()

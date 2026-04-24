@@ -1,7 +1,6 @@
 package com.example.ar_control.gemma
 
 import android.content.Context
-import android.net.Uri
 import java.io.Closeable
 import java.io.File
 import java.io.IOException
@@ -92,32 +91,6 @@ class GemmaModelDownloader internal constructor(
     }
 }
 
-sealed interface GemmaModelImportResult {
-    data class Imported(val path: String, val displayName: String?) : GemmaModelImportResult
-    data class Failed(val reason: String) : GemmaModelImportResult
-}
-
-class GemmaModelImporter internal constructor(
-    private val ioDispatcher: CoroutineDispatcher = Dispatchers.IO
-) {
-
-    constructor(
-        context: Context,
-        preferences: GemmaSubtitlePreferences
-    ) : this()
-
-    internal constructor(
-        targetDirectory: File,
-        preferences: GemmaSubtitlePreferences,
-        openInputStream: (Uri) -> InputStream?,
-        ioDispatcher: CoroutineDispatcher = Dispatchers.IO
-    ) : this(ioDispatcher)
-
-    suspend fun importModel(uri: Uri, displayName: String?): GemmaModelImportResult = withContext(ioDispatcher) {
-        GemmaModelImportResult.Failed(MUST_DOWNLOAD_REASON)
-    }
-}
-
 private fun openHttpsStream(url: URL): GemmaModelDownloadStream {
     val connection = url.openConnection()
     connection.connectTimeout = CONNECT_TIMEOUT_MILLIS
@@ -173,7 +146,6 @@ private const val MODEL_DISPLAY_NAME = "gemma-4-E2B-it.litertlm"
 private const val MODEL_URL =
     "https://huggingface.co/litert-community/gemma-4-E2B-it-litert-lm/resolve/main/gemma-4-E2B-it.litertlm?download=true"
 private const val COULD_NOT_DOWNLOAD_REASON = "Could not download Gemma model"
-private const val MUST_DOWNLOAD_REASON = "Gemma model must be downloaded from the public source"
 private const val CONNECT_TIMEOUT_MILLIS = 15_000
 private const val READ_TIMEOUT_MILLIS = 30_000
 private const val COPY_BUFFER_SIZE_BYTES = 128 * 1024

@@ -333,7 +333,11 @@ Real-device validation still needs `Huawei P60 Pro` + `XREAL One Pro`.
 
 ## Gemma subtitles
 
-`Gemma subtitles` uses an on-device `.litertlm` model imported from device storage. Do not commit model files to this repository. On a device, tap `Import Gemma model`, select a compatible Gemma 4 multimodal LiteRT-LM model, enable `Gemma subtitles`, then start preview. Captions appear as a floating pill over fullscreen preview.
+`Gemma subtitles` downloads the public LiteRT-LM model
+`litert-community/gemma-4-E2B-it-litert-lm/gemma-4-E2B-it.litertlm` from Hugging Face
+into app-private storage. On a device, tap `Download Gemma model`, wait for the model
+status to show the configured file, enable `Gemma subtitles`, then start preview. Captions
+appear as a floating pill over fullscreen preview.
 
 ## Recording workflow
 

@@ -38,31 +38,32 @@ class GemmaModelImporter internal constructor(
             null
         } ?: return@withContext GemmaModelImportResult.Failed(COULD_NOT_OPEN_REASON)
 
-        targetDirectory.mkdirs()
-        val targetFile = File(targetDirectory, MODEL_FILE_NAME)
-        val tempFile = try {
-            File.createTempFile(MODEL_FILE_NAME, ".tmp", targetDirectory)
-        } catch (_: Exception) {
-            source.close()
-            return@withContext GemmaModelImportResult.Failed(COULD_NOT_IMPORT_REASON)
-        }
+        var tempFile: File? = null
         try {
-            source.use { input ->
-                tempFile.outputStream().use { output ->
-                    input.copyTo(output)
-                }
+            targetDirectory.mkdirs()
+            val targetFile = File(targetDirectory, MODEL_FILE_NAME)
+            tempFile = File.createTempFile(MODEL_FILE_NAME, ".tmp", targetDirectory)
+            tempFile.outputStream().use { output ->
+                source.copyTo(output)
             }
-            Files.move(tempFile.toPath(), targetFile.toPath(), StandardCopyOption.REPLACE_EXISTING)
+            Files.move(
+                tempFile.toPath(),
+                targetFile.toPath(),
+                StandardCopyOption.ATOMIC_MOVE,
+                StandardCopyOption.REPLACE_EXISTING
+            )
+
+            val targetPath = targetFile.absolutePath
+            val safeDisplayName = displayName.safeDisplayName()
+            preferences.setModel(targetPath, safeDisplayName)
+
+            return@withContext GemmaModelImportResult.Imported(targetPath, safeDisplayName)
         } catch (_: Exception) {
-            tempFile.delete()
+            tempFile?.delete()
             return@withContext GemmaModelImportResult.Failed(COULD_NOT_IMPORT_REASON)
+        } finally {
+            runCatching { source.close() }
         }
-
-        val targetPath = targetFile.absolutePath
-        val safeDisplayName = displayName.safeDisplayName()
-        preferences.setModel(targetPath, safeDisplayName)
-
-        return@withContext GemmaModelImportResult.Imported(targetPath, safeDisplayName)
     }
 
     private fun String?.safeDisplayName(): String {

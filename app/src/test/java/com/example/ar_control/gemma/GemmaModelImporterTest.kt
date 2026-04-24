@@ -60,6 +60,33 @@ class GemmaModelImporterTest {
     }
 
     @Test
+    fun importModelReplacesExistingFinalModelWithNewBytes() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-import-final-replace-test").toFile()
+        val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
+            parentFile?.mkdirs()
+            writeBytes(byteArrayOf(1, 1, 1))
+        }
+        val preferences = FakeGemmaSubtitlePreferences().apply {
+            setModel(existingModel.absolutePath, "old.litertlm")
+        }
+        val newBytes = byteArrayOf(2, 3, 4, 5)
+        val importer = GemmaModelImporter(
+            targetDirectory = targetDirectory,
+            preferences = preferences,
+            openInputStream = { ByteArrayInputStream(newBytes) }
+        )
+
+        val result = importer.importModel(Uri.parse("content://models/new-final"), "new.litertlm")
+
+        assertTrue(result is GemmaModelImportResult.Imported)
+        val imported = result as GemmaModelImportResult.Imported
+        assertEquals(existingModel.absolutePath, imported.path)
+        assertArrayEquals(newBytes, existingModel.readBytes())
+        assertEquals(existingModel.absolutePath, preferences.getModelPath())
+        assertEquals("new.litertlm", preferences.getModelDisplayName())
+    }
+
+    @Test
     fun importModelLeavesPreviousDifferentModelAfterSuccessfulImport() = runTest {
         val targetDirectory = Files.createTempDirectory("gemma-import-replace-test").toFile()
         val previous = File(targetDirectory, "previous.litertlm").apply {
@@ -108,6 +135,23 @@ class GemmaModelImporterTest {
     }
 
     @Test
+    fun importModelReturnsFailureWhenSourceCloseThrowsDuringSetupFailure() = runTest {
+        val targetDirectory = Files.createTempFile("gemma-import-not-directory", ".tmp").toFile()
+        val preferences = FakeGemmaSubtitlePreferences()
+        val importer = GemmaModelImporter(
+            targetDirectory = targetDirectory,
+            preferences = preferences,
+            openInputStream = { CloseThrowingInputStream(byteArrayOf(1, 2)) }
+        )
+
+        val result = importer.importModel(Uri.parse("content://models/close-fails"), "new.litertlm")
+
+        assertEquals(GemmaModelImportResult.Failed("Could not import selected Gemma model"), result)
+        assertNull(preferences.getModelPath())
+        assertNull(preferences.getModelDisplayName())
+    }
+
+    @Test
     fun importModelReturnsFailureWhenSourceCannotBeOpened() = runTest {
         val targetDirectory = Files.createTempDirectory("gemma-import-failure-test").toFile()
         val previous = File(targetDirectory, "previous.litertlm").apply {
@@ -130,6 +174,23 @@ class GemmaModelImporterTest {
         assertEquals(previous.absolutePath, preferences.getModelPath())
         assertEquals("previous.litertlm", preferences.getModelDisplayName())
         assertNull(File(targetDirectory, "gemma-subtitles.litertlm").takeIf { it.exists() })
+    }
+}
+
+private class CloseThrowingInputStream(
+    private val bytes: ByteArray
+) : InputStream() {
+    private var offset = 0
+
+    override fun read(): Int {
+        if (offset < bytes.size) {
+            return bytes[offset++].toInt() and 0xff
+        }
+        return -1
+    }
+
+    override fun close() {
+        throw IOException("simulated close failure")
     }
 }
 

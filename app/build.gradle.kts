@@ -79,6 +79,7 @@ dependencies {
     implementation(libs.androidx.lifecycle.viewmodel.ktx)
     implementation(libs.material)
     implementation(libs.litert)
+    implementation(libs.litert.lm.android)
     implementation(project(":vendor:onexr"))
     implementation(project(":vendor:uvccamera"))
     testImplementation(libs.junit)

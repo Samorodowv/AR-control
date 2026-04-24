@@ -13,6 +13,8 @@ import java.nio.file.StandardCopyOption
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 data class GemmaModelDownloadProgress(
@@ -138,7 +140,7 @@ private fun openHttpsStream(url: URL): GemmaModelDownloadStream {
     )
 }
 
-private fun copyWithProgress(
+private suspend fun copyWithProgress(
     source: InputStream,
     targetFile: File,
     totalBytes: Long?,
@@ -146,9 +148,11 @@ private fun copyWithProgress(
 ) {
     var bytesDownloaded = 0L
     onProgress(GemmaModelDownloadProgress(bytesDownloaded, totalBytes))
+    currentCoroutineContext().ensureActive()
     targetFile.outputStream().use { output ->
         val buffer = ByteArray(COPY_BUFFER_SIZE_BYTES)
         while (true) {
+            currentCoroutineContext().ensureActive()
             val read = source.read(buffer)
             if (read == -1) {
                 break
@@ -156,6 +160,7 @@ private fun copyWithProgress(
             output.write(buffer, 0, read)
             bytesDownloaded += read.toLong()
             onProgress(GemmaModelDownloadProgress(bytesDownloaded, totalBytes))
+            currentCoroutineContext().ensureActive()
         }
     }
 }

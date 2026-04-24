@@ -7,6 +7,10 @@ import java.io.InputStream
 import java.net.URL
 import java.nio.file.Files
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineStart
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.async
+import kotlinx.coroutines.currentCoroutineContext
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -234,6 +238,52 @@ class GemmaModelDownloaderTest {
             fail("Expected CancellationException")
         } catch (expected: CancellationException) {
             assertEquals("cancelled during copy", expected.message)
+        }
+
+        assertTrue(targetDirectory.listFiles { file -> file.extension == "tmp" }.orEmpty().isEmpty())
+        assertArrayEquals(existingBytes, existingModel.readBytes())
+        assertEquals(existingModel.absolutePath, preferences.getModelPath())
+        assertEquals("existing.litertlm", preferences.getModelDisplayName())
+    }
+
+    @Test
+    fun downloadModelObservesCoroutineCancellationDuringCopy() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-job-cancellation-test").toFile()
+        val existingBytes = byteArrayOf(30, 31, 32, 33)
+        val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
+            parentFile?.mkdirs()
+            writeBytes(existingBytes)
+        }
+        val preferences = FakeGemmaSubtitlePreferences().apply {
+            setModel(existingModel.absolutePath, "existing.litertlm")
+        }
+        val newBytes = ByteArray(256 * 1024) { index -> index.toByte() }
+        val downloader = newDownloader(
+            targetDirectory = targetDirectory,
+            preferences = preferences,
+            openStream = { _ ->
+                GemmaModelDownloadStream(
+                    inputStream = ByteArrayInputStream(newBytes),
+                    contentLengthBytes = newBytes.size.toLong()
+                )
+            }
+        )
+
+        val deferred = async(start = CoroutineStart.LAZY) {
+            val downloadJob = currentCoroutineContext()[Job] ?: error("Missing coroutine job")
+            downloader.downloadModel { progress ->
+                if (progress.bytesDownloaded > 0L) {
+                    downloadJob.cancel(CancellationException("cancelled by test"))
+                }
+            }
+        }
+
+        deferred.start()
+        try {
+            deferred.await()
+            fail("Expected CancellationException")
+        } catch (expected: CancellationException) {
+            assertEquals("cancelled by test", expected.message)
         }
 
         assertTrue(targetDirectory.listFiles { file -> file.extension == "tmp" }.orEmpty().isEmpty())

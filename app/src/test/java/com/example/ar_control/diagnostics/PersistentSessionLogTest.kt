@@ -2,6 +2,7 @@ package com.example.ar_control.diagnostics
 
 import java.io.File
 import java.time.Instant
+import kotlin.io.path.createTempDirectory
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -16,7 +17,7 @@ class PersistentSessionLogTest {
                 Instant.parse("2026-04-18T10:00:01Z")
             )
         )
-        val directory = createTempDir(prefix = "persistent_session_log")
+        val directory = createTempDirectory(prefix = "persistent_session_log").toFile()
         val logFile = File(directory, "session-log.json")
 
         val firstLog = PersistentSessionLog(
@@ -45,7 +46,7 @@ class PersistentSessionLogTest {
 
     @Test
     fun uncaughtException_logsFatalCrashAndDelegates() {
-        val directory = createTempDir(prefix = "persistent_session_log_crash")
+        val directory = createTempDirectory(prefix = "persistent_session_log_crash").toFile()
         val logFile = File(directory, "session-log.json")
         val sessionLog = PersistentSessionLog(
             file = logFile,

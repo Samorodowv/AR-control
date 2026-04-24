@@ -1,10 +1,10 @@
 package com.example.ar_control.gemma
 
-import android.net.Uri
 import java.io.ByteArrayInputStream
 import java.io.File
 import java.io.IOException
 import java.io.InputStream
+import java.net.URL
 import java.nio.file.Files
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
@@ -18,52 +18,45 @@ import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 
 @RunWith(RobolectricTestRunner::class)
-class GemmaModelImporterTest {
+class GemmaModelDownloaderTest {
 
     @Test
-    fun importModelCopiesContentAndPersistsMetadata() = runTest {
-        val targetDirectory = Files.createTempDirectory("gemma-import-test").toFile()
+    fun downloadModelCopiesContentAndPersistsMetadata() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-test").toFile()
         val preferences = FakeGemmaSubtitlePreferences()
         val sourceBytes = byteArrayOf(1, 2, 3, 4)
-        val importer = GemmaModelImporter(
+        val downloader = GemmaModelDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openInputStream = { ByteArrayInputStream(sourceBytes) }
+            source = GemmaModelDownloadSource(
+                url = URL("https://example.test/gemma.litertlm"),
+                displayName = "gemma-4-E2B-it.litertlm"
+            ),
+            openStream = {
+                GemmaModelDownloadStream(
+                    inputStream = ByteArrayInputStream(sourceBytes),
+                    contentLengthBytes = sourceBytes.size.toLong()
+                )
+            }
         )
+        val progress = mutableListOf<GemmaModelDownloadProgress>()
 
-        val result = importer.importModel(Uri.parse("content://models/gemma"), "gemma-4.litertlm")
+        val result = downloader.downloadModel(progress::add)
 
-        assertTrue(result is GemmaModelImportResult.Imported)
-        val imported = result as GemmaModelImportResult.Imported
-        assertEquals(File(targetDirectory, "gemma-subtitles.litertlm").absolutePath, imported.path)
-        assertEquals("gemma-4.litertlm", imported.displayName)
-        assertTrue(File(imported.path).exists())
-        assertArrayEquals(sourceBytes, File(imported.path).readBytes())
-        assertEquals(imported.path, preferences.getModelPath())
-        assertEquals("gemma-4.litertlm", preferences.getModelDisplayName())
+        assertTrue(result is GemmaModelDownloadResult.Downloaded)
+        val downloaded = result as GemmaModelDownloadResult.Downloaded
+        assertEquals(File(targetDirectory, "gemma-subtitles.litertlm").absolutePath, downloaded.path)
+        assertEquals("gemma-4-E2B-it.litertlm", downloaded.displayName)
+        assertArrayEquals(sourceBytes, File(downloaded.path).readBytes())
+        assertEquals(downloaded.path, preferences.getModelPath())
+        assertEquals("gemma-4-E2B-it.litertlm", preferences.getModelDisplayName())
+        assertTrue(progress.last().bytesDownloaded == sourceBytes.size.toLong())
+        assertEquals(sourceBytes.size.toLong(), progress.last().totalBytes)
     }
 
     @Test
-    fun importModelUsesDefaultDisplayNameWhenProvidedNameIsBlank() = runTest {
-        val targetDirectory = Files.createTempDirectory("gemma-import-default-name-test").toFile()
-        val preferences = FakeGemmaSubtitlePreferences()
-        val importer = GemmaModelImporter(
-            targetDirectory = targetDirectory,
-            preferences = preferences,
-            openInputStream = { ByteArrayInputStream(byteArrayOf(7, 8)) }
-        )
-
-        val result = importer.importModel(Uri.parse("content://models/gemma"), "  ")
-
-        assertTrue(result is GemmaModelImportResult.Imported)
-        val imported = result as GemmaModelImportResult.Imported
-        assertEquals("gemma-subtitles.litertlm", imported.displayName)
-        assertEquals("gemma-subtitles.litertlm", preferences.getModelDisplayName())
-    }
-
-    @Test
-    fun importModelReplacesExistingFinalModelWithNewBytes() = runTest {
-        val targetDirectory = Files.createTempDirectory("gemma-import-final-replace-test").toFile()
+    fun downloadModelReplacesExistingFinalModelWithNewBytes() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-final-replace-test").toFile()
         val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
             parentFile?.mkdirs()
             writeBytes(byteArrayOf(1, 1, 1))
@@ -72,25 +65,30 @@ class GemmaModelImporterTest {
             setModel(existingModel.absolutePath, "old.litertlm")
         }
         val newBytes = byteArrayOf(2, 3, 4, 5)
-        val importer = GemmaModelImporter(
+        val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openInputStream = { ByteArrayInputStream(newBytes) }
+            openStream = {
+                GemmaModelDownloadStream(
+                    inputStream = ByteArrayInputStream(newBytes),
+                    contentLengthBytes = newBytes.size.toLong()
+                )
+            }
         )
 
-        val result = importer.importModel(Uri.parse("content://models/new-final"), "new.litertlm")
+        val result = downloader.downloadModel()
 
-        assertTrue(result is GemmaModelImportResult.Imported)
-        val imported = result as GemmaModelImportResult.Imported
-        assertEquals(existingModel.absolutePath, imported.path)
+        assertTrue(result is GemmaModelDownloadResult.Downloaded)
+        val downloaded = result as GemmaModelDownloadResult.Downloaded
+        assertEquals(existingModel.absolutePath, downloaded.path)
         assertArrayEquals(newBytes, existingModel.readBytes())
         assertEquals(existingModel.absolutePath, preferences.getModelPath())
-        assertEquals("new.litertlm", preferences.getModelDisplayName())
+        assertEquals("gemma-4-E2B-it.litertlm", preferences.getModelDisplayName())
     }
 
     @Test
-    fun importModelLeavesPreviousDifferentModelAfterSuccessfulImport() = runTest {
-        val targetDirectory = Files.createTempDirectory("gemma-import-replace-test").toFile()
+    fun downloadModelLeavesPreviousDifferentModelAfterSuccessfulDownload() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-replace-test").toFile()
         val previous = File(targetDirectory, "previous.litertlm").apply {
             parentFile?.mkdirs()
             writeBytes(byteArrayOf(9))
@@ -98,22 +96,27 @@ class GemmaModelImporterTest {
         val preferences = FakeGemmaSubtitlePreferences().apply {
             setModel(previous.absolutePath, "previous.litertlm")
         }
-        val importer = GemmaModelImporter(
+        val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openInputStream = { ByteArrayInputStream(byteArrayOf(5, 6)) }
+            openStream = {
+                GemmaModelDownloadStream(
+                    inputStream = ByteArrayInputStream(byteArrayOf(5, 6)),
+                    contentLengthBytes = 2L
+                )
+            }
         )
 
-        val result = importer.importModel(Uri.parse("content://models/new"), "new.litertlm")
+        val result = downloader.downloadModel()
 
-        assertTrue(result is GemmaModelImportResult.Imported)
+        assertTrue(result is GemmaModelDownloadResult.Downloaded)
         assertTrue(previous.exists())
-        assertEquals("new.litertlm", preferences.getModelDisplayName())
+        assertEquals("gemma-4-E2B-it.litertlm", preferences.getModelDisplayName())
     }
 
     @Test
-    fun importModelKeepsExistingModelAndPreferencesWhenCopyFails() = runTest {
-        val targetDirectory = Files.createTempDirectory("gemma-import-copy-failure-test").toFile()
+    fun downloadModelKeepsExistingModelAndPreferencesWhenCopyFails() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-copy-failure-test").toFile()
         val existingBytes = byteArrayOf(10, 11, 12, 13)
         val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
             parentFile?.mkdirs()
@@ -122,40 +125,50 @@ class GemmaModelImporterTest {
         val preferences = FakeGemmaSubtitlePreferences().apply {
             setModel(existingModel.absolutePath, "existing.litertlm")
         }
-        val importer = GemmaModelImporter(
+        val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openInputStream = { ThrowingAfterBytesInputStream(byteArrayOf(1, 2)) }
+            openStream = {
+                GemmaModelDownloadStream(
+                    inputStream = ThrowingAfterBytesInputStream(byteArrayOf(1, 2)),
+                    contentLengthBytes = 2L
+                )
+            }
         )
 
-        val result = importer.importModel(Uri.parse("content://models/failing"), "new.litertlm")
+        val result = downloader.downloadModel()
 
-        assertEquals(GemmaModelImportResult.Failed("Could not import selected Gemma model"), result)
+        assertEquals(GemmaModelDownloadResult.Failed("Could not download Gemma model"), result)
         assertArrayEquals(existingBytes, existingModel.readBytes())
         assertEquals(existingModel.absolutePath, preferences.getModelPath())
         assertEquals("existing.litertlm", preferences.getModelDisplayName())
     }
 
     @Test
-    fun importModelReturnsFailureWhenSourceCloseThrowsDuringSetupFailure() = runTest {
-        val targetDirectory = Files.createTempFile("gemma-import-not-directory", ".tmp").toFile()
+    fun downloadModelReturnsFailureWhenSourceCloseThrowsDuringSetupFailure() = runTest {
+        val targetDirectory = Files.createTempFile("gemma-download-not-directory", ".tmp").toFile()
         val preferences = FakeGemmaSubtitlePreferences()
-        val importer = GemmaModelImporter(
+        val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openInputStream = { CloseThrowingInputStream(byteArrayOf(1, 2)) }
+            openStream = {
+                GemmaModelDownloadStream(
+                    inputStream = CloseThrowingInputStream(byteArrayOf(1, 2)),
+                    contentLengthBytes = 2L
+                )
+            }
         )
 
-        val result = importer.importModel(Uri.parse("content://models/close-fails"), "new.litertlm")
+        val result = downloader.downloadModel()
 
-        assertEquals(GemmaModelImportResult.Failed("Could not import selected Gemma model"), result)
+        assertEquals(GemmaModelDownloadResult.Failed("Could not download Gemma model"), result)
         assertNull(preferences.getModelPath())
         assertNull(preferences.getModelDisplayName())
     }
 
     @Test
-    fun importModelReturnsFailureWhenSourceCannotBeOpened() = runTest {
-        val targetDirectory = Files.createTempDirectory("gemma-import-failure-test").toFile()
+    fun downloadModelReturnsFailureWhenSourceCannotBeOpened() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-failure-test").toFile()
         val previous = File(targetDirectory, "previous.litertlm").apply {
             parentFile?.mkdirs()
             writeBytes(byteArrayOf(9))
@@ -163,15 +176,15 @@ class GemmaModelImporterTest {
         val preferences = FakeGemmaSubtitlePreferences().apply {
             setModel(previous.absolutePath, "previous.litertlm")
         }
-        val importer = GemmaModelImporter(
+        val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openInputStream = { null }
+            openStream = { throw IOException("simulated open failure") }
         )
 
-        val result = importer.importModel(Uri.parse("content://models/missing"), "missing.litertlm")
+        val result = downloader.downloadModel()
 
-        assertEquals(GemmaModelImportResult.Failed("Could not open selected Gemma model"), result)
+        assertEquals(GemmaModelDownloadResult.Failed("Could not download Gemma model"), result)
         assertTrue(previous.exists())
         assertEquals(previous.absolutePath, preferences.getModelPath())
         assertEquals("previous.litertlm", preferences.getModelDisplayName())
@@ -179,20 +192,20 @@ class GemmaModelImporterTest {
     }
 
     @Test(expected = CancellationException::class)
-    fun importModelPropagatesCancellationFromOpenInputStream() = runTest {
-        val targetDirectory = Files.createTempDirectory("gemma-import-cancellation-test").toFile()
-        val importer = GemmaModelImporter(
+    fun downloadModelPropagatesCancellationFromOpenStream() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-cancellation-test").toFile()
+        val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = FakeGemmaSubtitlePreferences(),
-            openInputStream = { throw CancellationException("cancelled") }
+            openStream = { throw CancellationException("cancelled") }
         )
 
-        importer.importModel(Uri.parse("content://models/cancelled"), "cancelled.litertlm")
+        downloader.downloadModel()
     }
 
     @Test
-    fun importModelCleansTempFileAndKeepsExistingStateWhenCopyIsCancelled() = runTest {
-        val targetDirectory = Files.createTempDirectory("gemma-import-copy-cancellation-test").toFile()
+    fun downloadModelCleansTempFileAndKeepsExistingStateWhenCopyIsCancelled() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-copy-cancellation-test").toFile()
         val existingBytes = byteArrayOf(20, 21, 22, 23)
         val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
             parentFile?.mkdirs()
@@ -201,14 +214,19 @@ class GemmaModelImporterTest {
         val preferences = FakeGemmaSubtitlePreferences().apply {
             setModel(existingModel.absolutePath, "existing.litertlm")
         }
-        val importer = GemmaModelImporter(
+        val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openInputStream = { CancellingAfterBytesInputStream(byteArrayOf(1, 2, 3)) }
+            openStream = {
+                GemmaModelDownloadStream(
+                    inputStream = CancellingAfterBytesInputStream(byteArrayOf(1, 2, 3)),
+                    contentLengthBytes = 3L
+                )
+            }
         )
 
         try {
-            importer.importModel(Uri.parse("content://models/cancels-during-copy"), "new.litertlm")
+            downloader.downloadModel()
             fail("Expected CancellationException")
         } catch (expected: CancellationException) {
             assertEquals("cancelled during copy", expected.message)
@@ -219,6 +237,20 @@ class GemmaModelImporterTest {
         assertEquals(existingModel.absolutePath, preferences.getModelPath())
         assertEquals("existing.litertlm", preferences.getModelDisplayName())
     }
+
+    private fun newDownloader(
+        targetDirectory: File,
+        preferences: GemmaSubtitlePreferences,
+        openStream: () -> GemmaModelDownloadStream
+    ): GemmaModelDownloader = GemmaModelDownloader(
+        targetDirectory = targetDirectory,
+        preferences = preferences,
+        source = GemmaModelDownloadSource(
+            url = URL("https://example.test/gemma.litertlm"),
+            displayName = "gemma-4-E2B-it.litertlm"
+        ),
+        openStream = openStream
+    )
 }
 
 private class CloseThrowingInputStream(

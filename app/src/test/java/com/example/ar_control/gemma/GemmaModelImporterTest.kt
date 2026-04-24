@@ -12,6 +12,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
@@ -188,6 +189,36 @@ class GemmaModelImporterTest {
 
         importer.importModel(Uri.parse("content://models/cancelled"), "cancelled.litertlm")
     }
+
+    @Test
+    fun importModelCleansTempFileAndKeepsExistingStateWhenCopyIsCancelled() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-import-copy-cancellation-test").toFile()
+        val existingBytes = byteArrayOf(20, 21, 22, 23)
+        val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
+            parentFile?.mkdirs()
+            writeBytes(existingBytes)
+        }
+        val preferences = FakeGemmaSubtitlePreferences().apply {
+            setModel(existingModel.absolutePath, "existing.litertlm")
+        }
+        val importer = GemmaModelImporter(
+            targetDirectory = targetDirectory,
+            preferences = preferences,
+            openInputStream = { CancellingAfterBytesInputStream(byteArrayOf(1, 2, 3)) }
+        )
+
+        try {
+            importer.importModel(Uri.parse("content://models/cancels-during-copy"), "new.litertlm")
+            fail("Expected CancellationException")
+        } catch (expected: CancellationException) {
+            assertEquals("cancelled during copy", expected.message)
+        }
+
+        assertTrue(targetDirectory.listFiles { file -> file.extension == "tmp" }.orEmpty().isEmpty())
+        assertArrayEquals(existingBytes, existingModel.readBytes())
+        assertEquals(existingModel.absolutePath, preferences.getModelPath())
+        assertEquals("existing.litertlm", preferences.getModelDisplayName())
+    }
 }
 
 private class CloseThrowingInputStream(
@@ -227,6 +258,29 @@ private class ThrowingAfterBytesInputStream(
             return count
         }
         throw IOException("simulated copy failure")
+    }
+}
+
+private class CancellingAfterBytesInputStream(
+    private val bytesBeforeCancellation: ByteArray
+) : InputStream() {
+    private var offset = 0
+
+    override fun read(): Int {
+        if (offset < bytesBeforeCancellation.size) {
+            return bytesBeforeCancellation[offset++].toInt() and 0xff
+        }
+        throw CancellationException("cancelled during copy")
+    }
+
+    override fun read(buffer: ByteArray, off: Int, len: Int): Int {
+        if (offset < bytesBeforeCancellation.size) {
+            val count = minOf(len, bytesBeforeCancellation.size - offset)
+            bytesBeforeCancellation.copyInto(buffer, off, offset, offset + count)
+            offset += count
+            return count
+        }
+        throw CancellationException("cancelled during copy")
     }
 }
 

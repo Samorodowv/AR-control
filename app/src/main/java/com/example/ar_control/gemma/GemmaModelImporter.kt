@@ -61,8 +61,8 @@ class GemmaModelImporter internal constructor(
 
             return@withContext GemmaModelImportResult.Imported(targetPath, safeDisplayName)
         } catch (error: Exception) {
-            if (error is CancellationException) throw error
             tempFile?.delete()
+            if (error is CancellationException) throw error
             return@withContext GemmaModelImportResult.Failed(COULD_NOT_IMPORT_REASON)
         } finally {
             runCatching { source.close() }

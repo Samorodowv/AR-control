@@ -17,6 +17,9 @@ data class PreviewUiState(
     val zoomFactor: Float = 1.0f,
     val recordVideoEnabled: Boolean = false,
     val objectDetectionEnabled: Boolean = false,
+    val gemmaSubtitlesEnabled: Boolean = false,
+    val gemmaModelDisplayName: String? = null,
+    val gemmaSubtitleText: String = "",
     val recordingStatus: RecordingStatus = RecordingStatus.Idle,
     val detectedObjects: List<DetectedObject> = emptyList(),
     val recordedClips: List<RecordedClip> = emptyList(),
@@ -26,7 +29,8 @@ data class PreviewUiState(
     val safeModeReason: String? = null,
     val brokenClipMetadata: BrokenClipMetadata? = null,
     val canChangeRecordVideo: Boolean = true,
-    val canChangeObjectDetection: Boolean = true
+    val canChangeObjectDetection: Boolean = true,
+    val canChangeGemmaSubtitles: Boolean = true
 ) {
     val selectedClip: RecordedClip?
         get() = recordedClips.firstOrNull { it.id == selectedClipId }

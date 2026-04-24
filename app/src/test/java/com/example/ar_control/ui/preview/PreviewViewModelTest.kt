@@ -11,6 +11,9 @@ import com.example.ar_control.detection.DetectionBoundingBox
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.InMemorySessionLog
+import com.example.ar_control.gemma.GemmaCaptionSession
+import com.example.ar_control.gemma.GemmaFrameCaptioner
+import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.recording.ClipRepository
 import com.example.ar_control.recording.DetectionAnnotationSink
 import com.example.ar_control.recording.RecordingInputTarget
@@ -177,6 +180,25 @@ class PreviewViewModelTest {
     }
 
     @Test
+    fun init_loadsGemmaSubtitlePreferenceAndModelName() = runTest {
+        val gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
+            enabled = true,
+            modelPath = "/models/gemma.litertlm",
+            modelDisplayName = "Gemma subtitles"
+        )
+        val viewModel = buildViewModel(
+            gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+            cleanupScope = cleanupScope
+        )
+
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.gemmaSubtitlesEnabled)
+        assertEquals("Gemma subtitles", viewModel.uiState.value.gemmaModelDisplayName)
+        assertEquals("", viewModel.uiState.value.gemmaSubtitleText)
+    }
+
+    @Test
     fun setRecordVideoEnabled_updatesUiStateAndPreferenceStore() = runTest {
         val recordingPreferences = FakeRecordingPreferences(enabled = false)
         val viewModel = buildViewModel(
@@ -207,6 +229,21 @@ class PreviewViewModelTest {
     }
 
     @Test
+    fun setGemmaSubtitlesEnabled_updatesUiStateAndPreferenceStore() = runTest {
+        val gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(enabled = false)
+        val viewModel = buildViewModel(
+            gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.setGemmaSubtitlesEnabled(true)
+
+        assertTrue(viewModel.uiState.value.gemmaSubtitlesEnabled)
+        assertTrue(gemmaSubtitlePreferences.isGemmaSubtitlesEnabled())
+        assertEquals(1, gemmaSubtitlePreferences.setEnabledCalls)
+    }
+
+    @Test
     fun init_whenSafeModeActive_disablesCameraAndMasksRecordingPreference() = runTest {
         val recoveryManager = FakeRecoveryManager(
             snapshot = RecoverySnapshot(
@@ -216,6 +253,12 @@ class PreviewViewModelTest {
         )
         val viewModel = buildViewModel(
             recordingPreferences = FakeRecordingPreferences(enabled = true),
+            detectionPreferences = FakeDetectionPreferences(enabled = true),
+            gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
+                enabled = true,
+                modelPath = "/models/gemma.litertlm",
+                modelDisplayName = "Gemma subtitles"
+            ),
             recoveryManager = recoveryManager,
             cleanupScope = cleanupScope
         )
@@ -227,8 +270,11 @@ class PreviewViewModelTest {
         assertFalse(viewModel.uiState.value.canStartPreview)
         assertFalse(viewModel.uiState.value.recordVideoEnabled)
         assertFalse(viewModel.uiState.value.objectDetectionEnabled)
+        assertFalse(viewModel.uiState.value.gemmaSubtitlesEnabled)
+        assertEquals("", viewModel.uiState.value.gemmaSubtitleText)
         assertFalse(viewModel.uiState.value.canChangeRecordVideo)
         assertFalse(viewModel.uiState.value.canChangeObjectDetection)
+        assertFalse(viewModel.uiState.value.canChangeGemmaSubtitles)
         assertEquals(
             "Recovered after abnormal termination during recording",
             viewModel.uiState.value.safeModeReason
@@ -245,9 +291,15 @@ class PreviewViewModelTest {
         )
         val recordingPreferences = FakeRecordingPreferences(enabled = true)
         val detectionPreferences = FakeDetectionPreferences(enabled = true)
+        val gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
+            enabled = true,
+            modelPath = "/models/gemma.litertlm",
+            modelDisplayName = "Gemma subtitles"
+        )
         val viewModel = buildViewModel(
             recordingPreferences = recordingPreferences,
             detectionPreferences = detectionPreferences,
+            gemmaSubtitlePreferences = gemmaSubtitlePreferences,
             recoveryManager = recoveryManager,
             cleanupScope = cleanupScope
         )
@@ -261,8 +313,11 @@ class PreviewViewModelTest {
         assertFalse(viewModel.uiState.value.canStartPreview)
         assertTrue(viewModel.uiState.value.recordVideoEnabled)
         assertTrue(viewModel.uiState.value.objectDetectionEnabled)
+        assertTrue(viewModel.uiState.value.gemmaSubtitlesEnabled)
+        assertEquals("Gemma subtitles", viewModel.uiState.value.gemmaModelDisplayName)
         assertTrue(viewModel.uiState.value.canChangeRecordVideo)
         assertTrue(viewModel.uiState.value.canChangeObjectDetection)
+        assertTrue(viewModel.uiState.value.canChangeGemmaSubtitles)
         assertEquals(1, recoveryManager.clearSafeModeCalls)
     }
 
@@ -366,6 +421,99 @@ class PreviewViewModelTest {
         assertEquals(1, objectDetector.startCalls)
         assertEquals(1, cameraSource.startRecordingCalls)
         assertTrue(cameraSource.lastRecordingTarget is RecordingInputTarget.FrameCallbackTarget)
+    }
+
+    @Test
+    fun startPreviewWithGemmaEnabledButNoModel_keepsPreviewRunningAndShowsError() = runTest {
+        val cameraSource = FakeCameraSource(
+            startResult = CameraSource.StartResult.Started(PreviewSize(width = 1920, height = 1080)),
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val gemmaFrameCaptioner = FakeGemmaFrameCaptioner()
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(enabled = true),
+            gemmaFrameCaptioner = gemmaFrameCaptioner,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isPreviewRunning)
+        assertEquals("Gemma model is not configured", viewModel.uiState.value.errorMessage)
+        assertEquals("", viewModel.uiState.value.gemmaSubtitleText)
+        assertEquals(0, gemmaFrameCaptioner.startCalls)
+        assertEquals(0, cameraSource.startRecordingCalls)
+    }
+
+    @Test
+    fun startPreviewWithGemmaEnabled_startsCaptionSessionAndUpdatesSubtitle() = runTest {
+        val cameraSource = FakeCameraSource(
+            startResult = CameraSource.StartResult.Started(PreviewSize(width = 1920, height = 1080)),
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val gemmaFrameCaptioner = FakeGemmaFrameCaptioner()
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
+                enabled = true,
+                modelPath = "/models/gemma.litertlm",
+                modelDisplayName = "Gemma subtitles"
+            ),
+            gemmaFrameCaptioner = gemmaFrameCaptioner,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(viewModel.uiState.value.isPreviewRunning)
+        assertEquals(1, gemmaFrameCaptioner.startCalls)
+        assertEquals("/models/gemma.litertlm", gemmaFrameCaptioner.lastModelPath)
+        assertEquals(PreviewSize(width = 1920, height = 1080), gemmaFrameCaptioner.lastPreviewSize)
+        assertEquals(1, cameraSource.startRecordingCalls)
+        assertTrue(cameraSource.lastRecordingTarget is RecordingInputTarget.FrameCallbackTarget)
+
+        gemmaFrameCaptioner.lastSession?.publish("a red mug on a desk")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("a red mug on a desk", viewModel.uiState.value.gemmaSubtitleText)
+    }
+
+    @Test
+    fun stopPreview_closesGemmaSessionAndClearsSubtitle() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val gemmaFrameCaptioner = FakeGemmaFrameCaptioner()
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
+                enabled = true,
+                modelPath = "/models/gemma.litertlm"
+            ),
+            gemmaFrameCaptioner = gemmaFrameCaptioner,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        gemmaFrameCaptioner.lastSession?.publish("a blue box")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.stopPreview()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(gemmaFrameCaptioner.lastSession?.closed == true)
+        assertEquals("", viewModel.uiState.value.gemmaSubtitleText)
+        assertFalse(viewModel.uiState.value.isPreviewRunning)
     }
 
     @Test
@@ -971,6 +1119,8 @@ private fun buildViewModel(
     detectionPreferences: DetectionPreferences = FakeDetectionPreferences(),
     objectDetector: ObjectDetector = FakeObjectDetector(),
     detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
+    gemmaSubtitlePreferences: GemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(),
+    gemmaFrameCaptioner: GemmaFrameCaptioner = FakeGemmaFrameCaptioner(),
     clipRepository: ClipRepository = FakeClipRepository(),
     videoRecorder: VideoRecorder = FakeVideoRecorder(),
     recoveryManager: RecoveryManager = FakeRecoveryManager(),
@@ -987,6 +1137,8 @@ private fun buildViewModel(
         detectionPreferences = detectionPreferences,
         objectDetector = objectDetector,
         detectionAnnotationSink = detectionAnnotationSink,
+        gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+        gemmaFrameCaptioner = gemmaFrameCaptioner,
         clipRepository = clipRepository,
         videoRecorder = videoRecorder,
         recoveryManager = recoveryManager,
@@ -1127,6 +1279,82 @@ private class FakeDetectionPreferences(
     override fun setObjectDetectionEnabled(enabled: Boolean) {
         this.enabled = enabled
         setCalls += 1
+    }
+}
+
+private class FakeGemmaSubtitlePreferences(
+    private var enabled: Boolean = false,
+    private var modelPath: String? = null,
+    private var modelDisplayName: String? = null
+) : GemmaSubtitlePreferences {
+    var setEnabledCalls = 0
+
+    override fun isGemmaSubtitlesEnabled(): Boolean = enabled
+
+    override fun setGemmaSubtitlesEnabled(enabled: Boolean) {
+        this.enabled = enabled
+        setEnabledCalls += 1
+    }
+
+    override fun getModelPath(): String? = modelPath
+
+    override fun getModelDisplayName(): String? = modelDisplayName
+
+    override fun setModel(path: String, displayName: String?) {
+        modelPath = path
+        modelDisplayName = displayName
+    }
+
+    override fun clearModel() {
+        modelPath = null
+        modelDisplayName = null
+    }
+}
+
+private class FakeGemmaFrameCaptioner : GemmaFrameCaptioner {
+    var startCalls = 0
+    var lastModelPath: String? = null
+    var lastPreviewSize: PreviewSize? = null
+    var lastSession: FakeGemmaCaptionSession? = null
+
+    override fun start(
+        modelPath: String,
+        previewSize: PreviewSize,
+        onCaptionUpdated: (String) -> Unit,
+        onError: (String) -> Unit
+    ): GemmaCaptionSession {
+        startCalls += 1
+        lastModelPath = modelPath
+        lastPreviewSize = previewSize
+        return FakeGemmaCaptionSession(onCaptionUpdated, onError).also {
+            lastSession = it
+        }
+    }
+}
+
+private class FakeGemmaCaptionSession(
+    private val onCaptionUpdated: (String) -> Unit,
+    private val onError: (String) -> Unit
+) : GemmaCaptionSession {
+    var closed = false
+        private set
+
+    override val inputTarget: RecordingInputTarget.FrameCallbackTarget =
+        RecordingInputTarget.FrameCallbackTarget(
+            pixelFormat = VideoFramePixelFormat.YUV420SP,
+            frameConsumer = VideoFrameConsumer { _, _ -> }
+        )
+
+    fun publish(caption: String) {
+        onCaptionUpdated(caption)
+    }
+
+    fun fail(reason: String) {
+        onError(reason)
+    }
+
+    override fun close() {
+        closed = true
     }
 }
 

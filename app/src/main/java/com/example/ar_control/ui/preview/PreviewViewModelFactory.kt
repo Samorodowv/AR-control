@@ -6,6 +6,10 @@ import com.example.ar_control.camera.CameraSource
 import com.example.ar_control.detection.DetectionPreferences
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.gemma.GemmaFrameCaptioner
+import com.example.ar_control.gemma.GemmaModelImporter
+import com.example.ar_control.gemma.GemmaSubtitlePreferences
+import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipRepository
 import com.example.ar_control.recording.DetectionAnnotationSink
 import com.example.ar_control.recording.NoOpDetectionAnnotationSink
@@ -25,6 +29,9 @@ class PreviewViewModelFactory(
     private val detectionPreferences: DetectionPreferences,
     private val objectDetector: ObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
+    private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
+    private val gemmaModelImporter: GemmaModelImporter? = null,
+    private val gemmaFrameCaptioner: GemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
     private val recoveryManager: RecoveryManager,
@@ -45,6 +52,9 @@ class PreviewViewModelFactory(
             detectionPreferences = detectionPreferences,
             objectDetector = objectDetector,
             detectionAnnotationSink = detectionAnnotationSink,
+            gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+            gemmaModelImporter = gemmaModelImporter,
+            gemmaFrameCaptioner = gemmaFrameCaptioner,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,
             recoveryManager = recoveryManager,

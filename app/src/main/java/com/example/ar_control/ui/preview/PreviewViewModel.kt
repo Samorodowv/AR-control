@@ -1,5 +1,6 @@
 package com.example.ar_control.ui.preview
 
+import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ar_control.camera.CameraSource
@@ -9,6 +10,12 @@ import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.gemma.GemmaCaptionSession
+import com.example.ar_control.gemma.GemmaFrameCaptioner
+import com.example.ar_control.gemma.GemmaModelImportResult
+import com.example.ar_control.gemma.GemmaModelImporter
+import com.example.ar_control.gemma.GemmaSubtitlePreferences
+import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipRepository
 import com.example.ar_control.recording.DetectionAnnotationSink
 import com.example.ar_control.recording.FrameCallbackTargetFanOut
@@ -48,6 +55,9 @@ class PreviewViewModel(
     },
     private val objectDetector: ObjectDetector = NoOpObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
+    private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
+    private val gemmaModelImporter: GemmaModelImporter? = null,
+    private val gemmaFrameCaptioner: GemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
     private val recoveryManager: RecoveryManager,
@@ -66,6 +76,7 @@ class PreviewViewModel(
     private var stopPreviewInFlight = false
     private var recoverySnapshot = RecoverySnapshot()
     private var activeDetectionSession: ObjectDetectionSession? = null
+    private var activeGemmaCaptionSession: GemmaCaptionSession? = null
     private var hasActiveFrameCallbackCapture = false
 
     init {
@@ -205,6 +216,37 @@ class PreviewViewModel(
         _uiState.value = applyRecoveryState(_uiState.value.copy(objectDetectionEnabled = enabled))
     }
 
+    fun setGemmaSubtitlesEnabled(enabled: Boolean) {
+        if (recoverySnapshot.isSafeMode) {
+            sessionLog.record("PreviewViewModel", "Gemma subtitles preference change ignored because safe mode is active")
+            return
+        }
+        gemmaSubtitlePreferences.setGemmaSubtitlesEnabled(enabled)
+        sessionLog.record("PreviewViewModel", "Gemma subtitles preference changed: $enabled")
+        _uiState.value = applyRecoveryState(_uiState.value.copy(gemmaSubtitlesEnabled = enabled))
+    }
+
+    fun importGemmaModel(uri: Uri, displayName: String?) {
+        val importer = gemmaModelImporter ?: return
+        viewModelScope.launch {
+            sessionLog.record("PreviewViewModel", "Gemma model import started")
+            when (val result = importer.importModel(uri, displayName)) {
+                is GemmaModelImportResult.Imported -> {
+                    sessionLog.record("PreviewViewModel", "Gemma model import finished: ${result.displayName}")
+                    _uiState.value = applyRecoveryState(_uiState.value.copy(
+                        gemmaModelDisplayName = result.displayName,
+                        errorMessage = null
+                    ))
+                }
+
+                is GemmaModelImportResult.Failed -> {
+                    sessionLog.record("PreviewViewModel", "Gemma model import failed: ${result.reason}")
+                    _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = result.reason))
+                }
+            }
+        }
+    }
+
     fun confirmSafeModeExit() {
         viewModelScope.launch {
             sessionLog.record("PreviewViewModel", "Safe mode exit confirmed by user")
@@ -221,6 +263,9 @@ class PreviewViewModel(
                     zoomFactor = minZoomFactor,
                     recordVideoEnabled = recordingPreferences.isRecordingEnabled(),
                     objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled(),
+                    gemmaSubtitlesEnabled = gemmaSubtitlePreferences.isGemmaSubtitlesEnabled(),
+                    gemmaModelDisplayName = gemmaSubtitlePreferences.getModelDisplayName(),
+                    gemmaSubtitleText = "",
                     recordingStatus = RecordingStatus.Idle,
                     errorMessage = null
                 )
@@ -287,6 +332,7 @@ class PreviewViewModel(
         cleanupScope.launch {
             sessionLog.record("PreviewViewModel", "Clearing preview resources")
             runCatching { activeDetectionSession?.close() }
+            runCatching { closeGemmaCaptionSession(clearSubtitle = true) }
             runCatching { cameraSource.stopRecording() }
             runCatching { videoRecorder.cancel() }
             runCatching { cameraSource.stop() }
@@ -299,9 +345,13 @@ class PreviewViewModel(
     private fun loadInitialRecordingState() {
         val recordVideoEnabled = recordingPreferences.isRecordingEnabled()
         val objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled()
+        val gemmaSubtitlesEnabled = gemmaSubtitlePreferences.isGemmaSubtitlesEnabled()
+        val gemmaModelDisplayName = gemmaSubtitlePreferences.getModelDisplayName()
         _uiState.value = applyRecoveryState(_uiState.value.copy(
             recordVideoEnabled = recordVideoEnabled,
-            objectDetectionEnabled = objectDetectionEnabled
+            objectDetectionEnabled = objectDetectionEnabled,
+            gemmaSubtitlesEnabled = gemmaSubtitlesEnabled,
+            gemmaModelDisplayName = gemmaModelDisplayName
         ))
 
         viewModelScope.launch {
@@ -364,10 +414,21 @@ class PreviewViewModel(
     private suspend fun maybeStartFramePipeline(previewSize: PreviewSize, generation: Long) {
         val shouldRunDetection = _uiState.value.objectDetectionEnabled
         val shouldRecord = _uiState.value.recordVideoEnabled
+        val shouldRunGemma = _uiState.value.gemmaSubtitlesEnabled
+        val gemmaModelPath = gemmaSubtitlePreferences.getModelPath()
         if (!shouldRunDetection) {
             detectionAnnotationSink.clearDetections()
         }
-        if ((!shouldRunDetection && !shouldRecord) || !isCurrentPreviewGeneration(generation)) {
+        if (shouldRunGemma && gemmaModelPath == null) {
+            sessionLog.record("PreviewViewModel", "Gemma subtitles enabled without configured model")
+            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                errorMessage = GEMMA_MODEL_NOT_CONFIGURED,
+                gemmaSubtitleText = ""
+            ))
+        }
+        if ((!shouldRunDetection && !shouldRecord && (gemmaModelPath == null || !shouldRunGemma)) ||
+            !isCurrentPreviewGeneration(generation)
+        ) {
             return
         }
 
@@ -386,13 +447,49 @@ class PreviewViewModel(
             null
         }
 
+        val gemmaCaptionSession = if (shouldRunGemma && gemmaModelPath != null) {
+            gemmaFrameCaptioner.start(
+                modelPath = gemmaModelPath,
+                previewSize = previewSize,
+                onCaptionUpdated = { caption ->
+                    viewModelScope.launch {
+                        if (_uiState.value.isPreviewRunning) {
+                            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                                gemmaSubtitleText = caption
+                            ))
+                        }
+                    }
+                },
+                onError = { reason ->
+                    viewModelScope.launch {
+                        closeGemmaCaptionSession(clearSubtitle = true)
+                        _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = reason))
+                    }
+                }
+            ).also { activeGemmaCaptionSession = it }
+        } else {
+            null
+        }
+
+        if (!isCurrentPreviewGeneration(generation)) {
+            sessionLog.record("PreviewViewModel", "Frame pipeline prepared after preview stop; closing stale sessions")
+            closeDetectionSession(clearDetections = true)
+            closeGemmaCaptionSession(clearSubtitle = true)
+            return
+        }
+
         if (!shouldRecord) {
-            val activeDetectionSession = detectionSession ?: return
+            val captureTarget = combineFrameTargets(
+                recorderTarget = null,
+                detectionSession = detectionSession,
+                gemmaCaptionSession = gemmaCaptionSession
+            ) ?: return
             startFrameCallbackCapture(
-                target = activeDetectionSession.inputTarget,
+                target = captureTarget,
                 generation = generation,
                 onFailure = { reason ->
                     closeDetectionSession(clearDetections = true)
+                    closeGemmaCaptionSession(clearSubtitle = true)
                     _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = reason))
                 }
             )
@@ -401,7 +498,11 @@ class PreviewViewModel(
 
         _uiState.value = applyRecoveryState(_uiState.value.copy(
             recordingStatus = RecordingStatus.Starting,
-            errorMessage = null
+            errorMessage = if (shouldRunGemma && gemmaModelPath == null) {
+                GEMMA_MODEL_NOT_CONFIGURED
+            } else {
+                null
+            }
         ))
 
         when (val recorderResult = videoRecorder.start(previewSize)) {
@@ -409,6 +510,7 @@ class PreviewViewModel(
                 if (!isCurrentPreviewGeneration(generation)) {
                     sessionLog.record("PreviewViewModel", "Recorder prepared after preview stop; cancelling stale session")
                     closeDetectionSession(clearDetections = true)
+                    closeGemmaCaptionSession(clearSubtitle = true)
                     cancelPreparedRecorder(reasonForLog = "Stale preview generation after recorder start")
                     return
                 }
@@ -420,10 +522,12 @@ class PreviewViewModel(
                 )
                 val captureTarget = combineFrameTargets(
                     recorderTarget = recorderResult.inputTarget,
-                    detectionSession = detectionSession
+                    detectionSession = detectionSession,
+                    gemmaCaptionSession = gemmaCaptionSession
                 )
                 if (captureTarget == null) {
                     closeDetectionSession(clearDetections = true)
+                    closeGemmaCaptionSession(clearSubtitle = true)
                     cancelPreparedRecorder(reasonForLog = "Unsupported detection and recording targets")
                     _uiState.value = applyRecoveryState(_uiState.value.copy(
                         recordingStatus = RecordingStatus.Failed("detection_recording_target_mismatch"),
@@ -439,13 +543,18 @@ class PreviewViewModel(
                             runCatching { cameraSource.stopRecording() }
                             hasActiveFrameCallbackCapture = false
                             closeDetectionSession(clearDetections = true)
+                            closeGemmaCaptionSession(clearSubtitle = true)
                             cancelPreparedRecorder(reasonForLog = "Stale preview generation after capture start")
                             return
                         }
                         sessionLog.record("PreviewViewModel", "Recording started successfully")
                         _uiState.value = applyRecoveryState(_uiState.value.copy(
                             recordingStatus = RecordingStatus.Recording,
-                            errorMessage = null
+                            errorMessage = if (shouldRunGemma && gemmaModelPath == null) {
+                                GEMMA_MODEL_NOT_CONFIGURED
+                            } else {
+                                null
+                            }
                         ))
                     }
 
@@ -453,6 +562,7 @@ class PreviewViewModel(
                         if (!isCurrentPreviewGeneration(generation)) {
                             sessionLog.record("PreviewViewModel", "Capture failure arrived after preview stop; cancelling stale session")
                             closeDetectionSession(clearDetections = true)
+                            closeGemmaCaptionSession(clearSubtitle = true)
                             cancelPreparedRecorder(reasonForLog = "Stale preview generation after capture failure")
                             return
                         }
@@ -462,6 +572,7 @@ class PreviewViewModel(
                         )
                         cancelPreparedRecorder(reasonForLog = "Capture start failed")
                         closeDetectionSession(clearDetections = true)
+                        closeGemmaCaptionSession(clearSubtitle = true)
                         recoveryManager.markPreviewStarted()
                         _uiState.value = applyRecoveryState(_uiState.value.copy(
                             recordingStatus = RecordingStatus.Failed(captureResult.reason),
@@ -477,6 +588,7 @@ class PreviewViewModel(
                     return
                 }
                 closeDetectionSession(clearDetections = true)
+                closeGemmaCaptionSession(clearSubtitle = true)
                 sessionLog.record("PreviewViewModel", "Recorder start failed: ${recorderResult.reason}")
                 _uiState.value = applyRecoveryState(_uiState.value.copy(
                     recordingStatus = RecordingStatus.Failed(recorderResult.reason),
@@ -568,6 +680,7 @@ class PreviewViewModel(
         }
 
         closeDetectionSession(clearDetections = true)
+        closeGemmaCaptionSession(clearSubtitle = true)
 
         sessionLog.record("PreviewViewModel", "Stopping camera preview source")
         cameraSource.stop()
@@ -664,12 +777,15 @@ class PreviewViewModel(
                 zoomFactor = minZoomFactor,
                 recordVideoEnabled = false,
                 objectDetectionEnabled = false,
+                gemmaSubtitlesEnabled = false,
+                gemmaSubtitleText = "",
                 recordingStatus = RecordingStatus.Idle,
                 isSafeMode = true,
                 safeModeReason = snapshot.safeModeReason,
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = false,
-                canChangeObjectDetection = false
+                canChangeObjectDetection = false,
+                canChangeGemmaSubtitles = false
             )
         } else {
             baseState.copy(
@@ -677,7 +793,8 @@ class PreviewViewModel(
                 safeModeReason = snapshot.safeModeReason,
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = true,
-                canChangeObjectDetection = true
+                canChangeObjectDetection = true,
+                canChangeGemmaSubtitles = true
             )
         }
     }
@@ -773,14 +890,28 @@ class PreviewViewModel(
     }
 
     private fun combineFrameTargets(
-        recorderTarget: RecordingInputTarget,
-        detectionSession: ObjectDetectionSession?
+        recorderTarget: RecordingInputTarget?,
+        detectionSession: ObjectDetectionSession?,
+        gemmaCaptionSession: GemmaCaptionSession?
     ): RecordingInputTarget? {
-        val detectionTarget = detectionSession?.inputTarget ?: return recorderTarget
-        val recordingCallbackTarget = recorderTarget as? RecordingInputTarget.FrameCallbackTarget
-            ?: return null
+        val requiresFrameCallbacks = detectionSession != null || gemmaCaptionSession != null
+        if (recorderTarget != null && !requiresFrameCallbacks) {
+            return recorderTarget
+        }
+        val callbackTargets = buildList {
+            if (recorderTarget != null) {
+                val recordingCallbackTarget = recorderTarget as? RecordingInputTarget.FrameCallbackTarget
+                    ?: return null
+                add(recordingCallbackTarget)
+            }
+            detectionSession?.inputTarget?.let { add(it) }
+            gemmaCaptionSession?.inputTarget?.let { add(it) }
+        }
+        if (callbackTargets.isEmpty()) {
+            return recorderTarget
+        }
         return FrameCallbackTargetFanOut.combine(
-            listOf(recordingCallbackTarget, detectionTarget)
+            callbackTargets
         )
     }
 
@@ -792,7 +923,31 @@ class PreviewViewModel(
             _uiState.value = applyRecoveryState(_uiState.value.copy(detectedObjects = emptyList()))
         }
     }
+
+    private fun closeGemmaCaptionSession(clearSubtitle: Boolean) {
+        activeGemmaCaptionSession?.close()
+        activeGemmaCaptionSession = null
+        if (clearSubtitle) {
+            _uiState.value = applyRecoveryState(_uiState.value.copy(gemmaSubtitleText = ""))
+        }
+    }
+
     private companion object {
         const val RECORDING_NOT_STARTED = "recording_not_started"
+        const val GEMMA_MODEL_NOT_CONFIGURED = "Gemma model is not configured"
     }
+}
+
+internal object NoOpGemmaSubtitlePreferences : GemmaSubtitlePreferences {
+    override fun isGemmaSubtitlesEnabled(): Boolean = false
+
+    override fun setGemmaSubtitlesEnabled(enabled: Boolean) = Unit
+
+    override fun getModelPath(): String? = null
+
+    override fun getModelDisplayName(): String? = null
+
+    override fun setModel(path: String, displayName: String?) = Unit
+
+    override fun clearModel() = Unit
 }

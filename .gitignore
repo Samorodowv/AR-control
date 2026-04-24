@@ -30,3 +30,4 @@ temp_fileprovider_src/
 /vendor/xr-tools.reference/
 /vendor/xreal_one_driver.reference/
 .worktrees/
+.superpowers/

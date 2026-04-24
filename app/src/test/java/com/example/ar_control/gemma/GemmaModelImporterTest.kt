@@ -6,6 +6,7 @@ import java.io.File
 import java.io.IOException
 import java.io.InputStream
 import java.nio.file.Files
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
@@ -174,6 +175,18 @@ class GemmaModelImporterTest {
         assertEquals(previous.absolutePath, preferences.getModelPath())
         assertEquals("previous.litertlm", preferences.getModelDisplayName())
         assertNull(File(targetDirectory, "gemma-subtitles.litertlm").takeIf { it.exists() })
+    }
+
+    @Test(expected = CancellationException::class)
+    fun importModelPropagatesCancellationFromOpenInputStream() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-import-cancellation-test").toFile()
+        val importer = GemmaModelImporter(
+            targetDirectory = targetDirectory,
+            preferences = FakeGemmaSubtitlePreferences(),
+            openInputStream = { throw CancellationException("cancelled") }
+        )
+
+        importer.importModel(Uri.parse("content://models/cancelled"), "cancelled.litertlm")
     }
 }
 

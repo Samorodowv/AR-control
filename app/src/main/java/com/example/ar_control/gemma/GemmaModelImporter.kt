@@ -6,6 +6,7 @@ import java.io.File
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
@@ -34,7 +35,8 @@ class GemmaModelImporter internal constructor(
     suspend fun importModel(uri: Uri, displayName: String?): GemmaModelImportResult = withContext(ioDispatcher) {
         val source = try {
             openInputStream(uri)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
             null
         } ?: return@withContext GemmaModelImportResult.Failed(COULD_NOT_OPEN_REASON)
 
@@ -58,7 +60,8 @@ class GemmaModelImporter internal constructor(
             preferences.setModel(targetPath, safeDisplayName)
 
             return@withContext GemmaModelImportResult.Imported(targetPath, safeDisplayName)
-        } catch (_: Exception) {
+        } catch (error: Exception) {
+            if (error is CancellationException) throw error
             tempFile?.delete()
             return@withContext GemmaModelImportResult.Failed(COULD_NOT_IMPORT_REASON)
         } finally {

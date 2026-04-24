@@ -25,14 +25,17 @@ class GemmaModelDownloaderTest {
         val targetDirectory = Files.createTempDirectory("gemma-download-test").toFile()
         val preferences = FakeGemmaSubtitlePreferences()
         val sourceBytes = byteArrayOf(1, 2, 3, 4)
+        val sourceUrl = URL("https://example.test/gemma.litertlm")
+        var openedUrl: URL? = null
         val downloader = GemmaModelDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
             source = GemmaModelDownloadSource(
-                url = URL("https://example.test/gemma.litertlm"),
+                url = sourceUrl,
                 displayName = "gemma-4-E2B-it.litertlm"
             ),
-            openStream = {
+            openStream = { url ->
+                openedUrl = url
                 GemmaModelDownloadStream(
                     inputStream = ByteArrayInputStream(sourceBytes),
                     contentLengthBytes = sourceBytes.size.toLong()
@@ -52,6 +55,7 @@ class GemmaModelDownloaderTest {
         assertEquals("gemma-4-E2B-it.litertlm", preferences.getModelDisplayName())
         assertTrue(progress.last().bytesDownloaded == sourceBytes.size.toLong())
         assertEquals(sourceBytes.size.toLong(), progress.last().totalBytes)
+        assertEquals(sourceUrl, openedUrl)
     }
 
     @Test
@@ -68,7 +72,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openStream = {
+            openStream = { _ ->
                 GemmaModelDownloadStream(
                     inputStream = ByteArrayInputStream(newBytes),
                     contentLengthBytes = newBytes.size.toLong()
@@ -99,7 +103,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openStream = {
+            openStream = { _ ->
                 GemmaModelDownloadStream(
                     inputStream = ByteArrayInputStream(byteArrayOf(5, 6)),
                     contentLengthBytes = 2L
@@ -128,7 +132,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openStream = {
+            openStream = { _ ->
                 GemmaModelDownloadStream(
                     inputStream = ThrowingAfterBytesInputStream(byteArrayOf(1, 2)),
                     contentLengthBytes = 2L
@@ -151,7 +155,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openStream = {
+            openStream = { _ ->
                 GemmaModelDownloadStream(
                     inputStream = CloseThrowingInputStream(byteArrayOf(1, 2)),
                     contentLengthBytes = 2L
@@ -179,7 +183,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openStream = { throw IOException("simulated open failure") }
+            openStream = { _ -> throw IOException("simulated open failure") }
         )
 
         val result = downloader.downloadModel()
@@ -197,7 +201,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = FakeGemmaSubtitlePreferences(),
-            openStream = { throw CancellationException("cancelled") }
+            openStream = { _ -> throw CancellationException("cancelled") }
         )
 
         downloader.downloadModel()
@@ -217,7 +221,7 @@ class GemmaModelDownloaderTest {
         val downloader = newDownloader(
             targetDirectory = targetDirectory,
             preferences = preferences,
-            openStream = {
+            openStream = { _ ->
                 GemmaModelDownloadStream(
                     inputStream = CancellingAfterBytesInputStream(byteArrayOf(1, 2, 3)),
                     contentLengthBytes = 3L
@@ -241,7 +245,7 @@ class GemmaModelDownloaderTest {
     private fun newDownloader(
         targetDirectory: File,
         preferences: GemmaSubtitlePreferences,
-        openStream: () -> GemmaModelDownloadStream
+        openStream: (URL) -> GemmaModelDownloadStream?
     ): GemmaModelDownloader = GemmaModelDownloader(
         targetDirectory = targetDirectory,
         preferences = preferences,

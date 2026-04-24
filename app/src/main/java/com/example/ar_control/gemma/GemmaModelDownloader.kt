@@ -103,6 +103,13 @@ class GemmaModelImporter internal constructor(
         preferences: GemmaSubtitlePreferences
     ) : this()
 
+    internal constructor(
+        targetDirectory: File,
+        preferences: GemmaSubtitlePreferences,
+        openInputStream: (Uri) -> InputStream?,
+        ioDispatcher: CoroutineDispatcher = Dispatchers.IO
+    ) : this(ioDispatcher)
+
     suspend fun importModel(uri: Uri, displayName: String?): GemmaModelImportResult = withContext(ioDispatcher) {
         GemmaModelImportResult.Failed(MUST_DOWNLOAD_REASON)
     }

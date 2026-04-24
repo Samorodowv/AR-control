@@ -3,11 +3,12 @@ package com.example.ar_control.gemma
 import android.net.Uri
 import java.io.ByteArrayInputStream
 import java.io.File
+import java.io.IOException
+import java.io.InputStream
 import java.nio.file.Files
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
-import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -59,7 +60,7 @@ class GemmaModelImporterTest {
     }
 
     @Test
-    fun importModelDeletesPreviousPrivateModelAfterSuccessfulImport() = runTest {
+    fun importModelLeavesPreviousDifferentModelAfterSuccessfulImport() = runTest {
         val targetDirectory = Files.createTempDirectory("gemma-import-replace-test").toFile()
         val previous = File(targetDirectory, "previous.litertlm").apply {
             parentFile?.mkdirs()
@@ -77,8 +78,33 @@ class GemmaModelImporterTest {
         val result = importer.importModel(Uri.parse("content://models/new"), "new.litertlm")
 
         assertTrue(result is GemmaModelImportResult.Imported)
-        assertFalse(previous.exists())
+        assertTrue(previous.exists())
         assertEquals("new.litertlm", preferences.getModelDisplayName())
+    }
+
+    @Test
+    fun importModelKeepsExistingModelAndPreferencesWhenCopyFails() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-import-copy-failure-test").toFile()
+        val existingBytes = byteArrayOf(10, 11, 12, 13)
+        val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
+            parentFile?.mkdirs()
+            writeBytes(existingBytes)
+        }
+        val preferences = FakeGemmaSubtitlePreferences().apply {
+            setModel(existingModel.absolutePath, "existing.litertlm")
+        }
+        val importer = GemmaModelImporter(
+            targetDirectory = targetDirectory,
+            preferences = preferences,
+            openInputStream = { ThrowingAfterBytesInputStream(byteArrayOf(1, 2)) }
+        )
+
+        val result = importer.importModel(Uri.parse("content://models/failing"), "new.litertlm")
+
+        assertEquals(GemmaModelImportResult.Failed("Could not import selected Gemma model"), result)
+        assertArrayEquals(existingBytes, existingModel.readBytes())
+        assertEquals(existingModel.absolutePath, preferences.getModelPath())
+        assertEquals("existing.litertlm", preferences.getModelDisplayName())
     }
 
     @Test
@@ -104,6 +130,29 @@ class GemmaModelImporterTest {
         assertEquals(previous.absolutePath, preferences.getModelPath())
         assertEquals("previous.litertlm", preferences.getModelDisplayName())
         assertNull(File(targetDirectory, "gemma-subtitles.litertlm").takeIf { it.exists() })
+    }
+}
+
+private class ThrowingAfterBytesInputStream(
+    private val bytesBeforeFailure: ByteArray
+) : InputStream() {
+    private var offset = 0
+
+    override fun read(): Int {
+        if (offset < bytesBeforeFailure.size) {
+            return bytesBeforeFailure[offset++].toInt() and 0xff
+        }
+        throw IOException("simulated copy failure")
+    }
+
+    override fun read(buffer: ByteArray, off: Int, len: Int): Int {
+        if (offset < bytesBeforeFailure.size) {
+            val count = minOf(len, bytesBeforeFailure.size - offset)
+            bytesBeforeFailure.copyInto(buffer, off, offset, offset + count)
+            offset += count
+            return count
+        }
+        throw IOException("simulated copy failure")
     }
 }
 

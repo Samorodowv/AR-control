@@ -447,13 +447,18 @@ class PreviewViewModel(
             null
         }
 
+        var startedGemmaCaptionSession: GemmaCaptionSession? = null
         val gemmaCaptionSession = if (shouldRunGemma && gemmaModelPath != null) {
-            gemmaFrameCaptioner.start(
+            val session = gemmaFrameCaptioner.start(
                 modelPath = gemmaModelPath,
                 previewSize = previewSize,
                 onCaptionUpdated = { caption ->
                     viewModelScope.launch {
-                        if (_uiState.value.isPreviewRunning) {
+                        if (
+                            isCurrentPreviewGeneration(generation) &&
+                            activeGemmaCaptionSession === startedGemmaCaptionSession &&
+                            _uiState.value.isPreviewRunning
+                        ) {
                             _uiState.value = applyRecoveryState(_uiState.value.copy(
                                 gemmaSubtitleText = caption
                             ))
@@ -462,11 +467,18 @@ class PreviewViewModel(
                 },
                 onError = { reason ->
                     viewModelScope.launch {
-                        closeGemmaCaptionSession(clearSubtitle = true)
-                        _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = reason))
+                        if (
+                            isCurrentPreviewGeneration(generation) &&
+                            activeGemmaCaptionSession === startedGemmaCaptionSession
+                        ) {
+                            closeGemmaCaptionSession(clearSubtitle = true)
+                            _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = reason))
+                        }
                     }
                 }
-            ).also { activeGemmaCaptionSession = it }
+            )
+            startedGemmaCaptionSession = session
+            session.also { activeGemmaCaptionSession = it }
         } else {
             null
         }

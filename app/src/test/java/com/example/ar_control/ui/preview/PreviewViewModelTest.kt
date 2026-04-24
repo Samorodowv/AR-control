@@ -517,6 +517,81 @@ class PreviewViewModelTest {
     }
 
     @Test
+    fun staleGemmaCaptionFromPreviousPreview_doesNotOverwriteCurrentSubtitle() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val gemmaFrameCaptioner = FakeGemmaFrameCaptioner()
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
+                enabled = true,
+                modelPath = "/models/gemma.litertlm"
+            ),
+            gemmaFrameCaptioner = gemmaFrameCaptioner,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        val staleSession = gemmaFrameCaptioner.sessions.single()
+        viewModel.stopPreview()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        val activeSession = gemmaFrameCaptioner.sessions.last()
+        activeSession.publish("current caption")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        staleSession.publish("stale caption")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals("current caption", viewModel.uiState.value.gemmaSubtitleText)
+        assertFalse(activeSession.closed)
+    }
+
+    @Test
+    fun staleGemmaErrorFromPreviousPreview_doesNotCloseCurrentSession() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val gemmaFrameCaptioner = FakeGemmaFrameCaptioner()
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
+                enabled = true,
+                modelPath = "/models/gemma.litertlm"
+            ),
+            gemmaFrameCaptioner = gemmaFrameCaptioner,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        val staleSession = gemmaFrameCaptioner.sessions.single()
+        viewModel.stopPreview()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        val activeSession = gemmaFrameCaptioner.sessions.last()
+        activeSession.publish("current caption")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        staleSession.fail("stale failure")
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertFalse(activeSession.closed)
+        assertEquals("current caption", viewModel.uiState.value.gemmaSubtitleText)
+        assertEquals("Preview running", viewModel.uiState.value.cameraStatus)
+    }
+
+    @Test
     fun detectionResults_updateUiStateAndAreClearedWhenPreviewStops() = runTest {
         val cameraSource = FakeCameraSource(
             recordingStartResult = CameraSource.RecordingStartResult.Started
@@ -1316,6 +1391,7 @@ private class FakeGemmaFrameCaptioner : GemmaFrameCaptioner {
     var lastModelPath: String? = null
     var lastPreviewSize: PreviewSize? = null
     var lastSession: FakeGemmaCaptionSession? = null
+    val sessions = mutableListOf<FakeGemmaCaptionSession>()
 
     override fun start(
         modelPath: String,
@@ -1328,6 +1404,7 @@ private class FakeGemmaFrameCaptioner : GemmaFrameCaptioner {
         lastPreviewSize = previewSize
         return FakeGemmaCaptionSession(onCaptionUpdated, onError).also {
             lastSession = it
+            sessions += it
         }
     }
 }

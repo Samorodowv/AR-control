@@ -231,13 +231,13 @@ class PreviewViewModel(
         if (_uiState.value.isGemmaModelDownloadInProgress) {
             return
         }
+        _uiState.value = applyRecoveryState(_uiState.value.copy(
+            isGemmaModelDownloadInProgress = true,
+            gemmaModelDownloadProgressText = GEMMA_MODEL_DOWNLOADING,
+            errorMessage = null
+        ))
         viewModelScope.launch {
             sessionLog.record("PreviewViewModel", "Gemma model download started")
-            _uiState.value = applyRecoveryState(_uiState.value.copy(
-                isGemmaModelDownloadInProgress = true,
-                gemmaModelDownloadProgressText = GEMMA_MODEL_DOWNLOADING,
-                errorMessage = null
-            ))
             when (val result = downloader.downloadModel(::onGemmaModelDownloadProgress)) {
                 is GemmaModelDownloadResult.Downloaded -> {
                     sessionLog.record("PreviewViewModel", "Gemma model download finished: ${result.displayName}")

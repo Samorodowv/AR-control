@@ -284,6 +284,41 @@ class PreviewViewModelTest {
     }
 
     @Test
+    fun downloadGemmaModel_whenCalledTwiceBeforeDispatcherRuns_startsOneDownload() = runTest {
+        val preferences = FakeGemmaSubtitlePreferences()
+        var openStreamCalls = 0
+        val downloader = GemmaModelDownloader(
+            targetDirectory = Files.createTempDirectory("view-model-gemma-download-duplicate").toFile(),
+            preferences = preferences,
+            source = GemmaModelDownloadSource(
+                url = URL("https://example.test/gemma.litertlm"),
+                displayName = "gemma-4-E2B-it.litertlm"
+            ),
+            openStream = {
+                openStreamCalls += 1
+                GemmaModelDownloadStream(
+                    inputStream = ByteArrayInputStream(byteArrayOf(1, 2, 3)),
+                    contentLengthBytes = 3L
+                )
+            },
+            ioDispatcher = dispatcher
+        )
+        val viewModel = buildViewModel(
+            gemmaSubtitlePreferences = preferences,
+            gemmaModelDownloader = downloader,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.downloadGemmaModel()
+        viewModel.downloadGemmaModel()
+        advanceUntilIdle()
+
+        assertEquals(1, openStreamCalls)
+        assertFalse(viewModel.uiState.value.isGemmaModelDownloadInProgress)
+        assertEquals("gemma-4-E2B-it.litertlm", viewModel.uiState.value.gemmaModelDisplayName)
+    }
+
+    @Test
     fun downloadGemmaModelFailure_setsErrorAndLeavesModelNameEmpty() = runTest {
         val preferences = FakeGemmaSubtitlePreferences()
         val downloader = GemmaModelDownloader(

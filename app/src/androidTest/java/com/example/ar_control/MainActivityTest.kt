@@ -174,7 +174,7 @@ class MainActivityTest {
     fun gemmaControlsAreVisibleOnControlScreen() {
         ActivityScenario.launch(MainActivity::class.java).use {
             onView(withId(R.id.gemmaSubtitlesCheckbox)).check(matches(isDisplayed()))
-            onView(withId(R.id.importGemmaModelButton)).check(matches(isDisplayed()))
+            onView(withId(R.id.downloadGemmaModelButton)).check(matches(isDisplayed()))
             onView(withId(R.id.gemmaModelStatusText)).check(matches(isDisplayed()))
         }
     }

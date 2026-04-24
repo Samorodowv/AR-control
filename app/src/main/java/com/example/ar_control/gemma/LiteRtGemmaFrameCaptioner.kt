@@ -20,6 +20,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineDispatcher
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -114,9 +115,15 @@ class LiteRtGemmaFrameCaptioner internal constructor(
             }
             lastAcceptedAtMillis = now
             val frameBytes = frame.copyRemainingBytes()
-            val inferenceJob = scope.launch {
+            val inferenceJob = scope.launch(start = CoroutineStart.LAZY) {
                 try {
+                    if (closed.get()) {
+                        return@launch
+                    }
                     val jpegBytes = Yuv420SpImageEncoder.encodeJpeg(frameBytes, previewSize)
+                    if (closed.get()) {
+                        return@launch
+                    }
                     val caption = sanitizeCaption(model.caption(jpegBytes))
                     if (!closed.get() && caption.isNotBlank()) {
                         onCaptionUpdated(caption)
@@ -140,8 +147,17 @@ class LiteRtGemmaFrameCaptioner internal constructor(
                     }
                 }
             }
-            synchronized(closeLock) {
-                activeInferenceJob = inferenceJob
+            val shouldStart = synchronized(closeLock) {
+                if (closeRequested || closed.get()) {
+                    inFlight.set(false)
+                    false
+                } else {
+                    activeInferenceJob = inferenceJob
+                    true
+                }
+            }
+            if (shouldStart) {
+                inferenceJob.start()
             }
         }
 
@@ -209,9 +225,11 @@ internal class LiteRtGemmaCaptionModel(
     private val modelLock = Any()
     private var engine: Engine? = null
     private var conversation: Conversation? = null
+    private var closed = false
 
     override suspend fun caption(jpegBytes: ByteArray): String {
         return synchronized(modelLock) {
+            check(!closed) { "Gemma caption model is closed" }
             val response = conversation().sendMessage(
                 Contents.of(
                     Content.ImageBytes(jpegBytes),
@@ -226,6 +244,7 @@ internal class LiteRtGemmaCaptionModel(
 
     override fun close() {
         synchronized(modelLock) {
+            closed = true
             runCatching { conversation?.close() }
             runCatching { engine?.close() }
             conversation = null

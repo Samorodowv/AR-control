@@ -7,6 +7,7 @@ import java.nio.ByteBuffer
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.UnconfinedTestDispatcher
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
@@ -142,6 +143,41 @@ class LiteRtGemmaFrameCaptionerTest {
         allowCaptionToFinish.complete(Unit)
         advanceUntilIdle()
 
+        assertEquals(1, model.closeCalls)
+        assertEquals(emptyList<String>(), captions)
+        assertEquals(emptyList<String>(), errors)
+    }
+
+    @Test
+    fun closeDuringInlineJobStartupDefersModelCloseUntilCaptionExits() = runTest {
+        lateinit var session: GemmaCaptionSession
+        lateinit var model: FakeGemmaCaptionModel
+        var closeCallsObservedInsideCaption = -1
+        model = FakeGemmaCaptionModel(
+            caption = "A Desk.",
+            beforeCaptionReturns = {
+                session.close()
+                closeCallsObservedInsideCaption = model.closeCalls
+            }
+        )
+        val captioner = LiteRtGemmaFrameCaptioner(
+            modelFactory = { model },
+            dispatcher = UnconfinedTestDispatcher(testScheduler),
+            clock = { 1_000L }
+        )
+        val captions = mutableListOf<String>()
+        val errors = mutableListOf<String>()
+        session = captioner.start(
+            modelPath = "model.task",
+            previewSize = PreviewSize(width = 2, height = 2),
+            onCaptionUpdated = captions::add,
+            onError = errors::add
+        )
+
+        session.inputTarget.frameConsumer.onFrame(testYuv420SpFrame(), 1L)
+        advanceUntilIdle()
+
+        assertEquals(0, closeCallsObservedInsideCaption)
         assertEquals(1, model.closeCalls)
         assertEquals(emptyList<String>(), captions)
         assertEquals(emptyList<String>(), errors)

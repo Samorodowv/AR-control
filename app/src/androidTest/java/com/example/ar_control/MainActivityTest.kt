@@ -329,7 +329,7 @@ private class FakeAppContainer(
         gemmaSubtitlePreferences = gemmaSubtitlePreferences,
         gemmaModelImporter = GemmaModelImporter(
             targetDirectory = context.filesDir.resolve("test-gemma-models"),
-            preferences = FakeGemmaSubtitlePreferences(),
+            preferences = gemmaSubtitlePreferences,
             openInputStream = { ByteArrayInputStream(byteArrayOf(1, 2, 3)) }
         ),
         gemmaFrameCaptioner = NoOpGemmaFrameCaptioner,

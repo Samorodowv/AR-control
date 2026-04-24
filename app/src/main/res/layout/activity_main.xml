@@ -138,11 +138,11 @@
                 android:textAppearance="?attr/textAppearanceBodyMedium" />
 
             <Button
-                android:id="@+id/importGemmaModelButton"
+                android:id="@+id/downloadGemmaModelButton"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:layout_marginTop="@dimen/control_item_spacing"
-                android:text="@string/import_gemma_model" />
+                android:text="@string/download_gemma_model" />
 
             <TextView
                 android:id="@+id/recordedClipsTitle"

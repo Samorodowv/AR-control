@@ -4,6 +4,7 @@ import android.content.Context
 import android.content.Intent
 import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
+import android.view.View
 import android.widget.FrameLayout
 import com.example.ar_control.recording.RecordingStatus
 import com.example.ar_control.ui.preview.PreviewUiState
@@ -86,5 +87,28 @@ class MainActivityUiLogicTest {
         )
 
         assertNotNull(view)
+    }
+
+    @Test
+    fun mainLayout_containsDownloadGemmaModelButton() {
+        val themedContext = ContextThemeWrapper(context, R.style.Theme_AR_Control)
+        val view = LayoutInflater.from(themedContext).inflate(
+            R.layout.activity_main,
+            FrameLayout(themedContext),
+            false
+        )
+
+        assertNotNull(view.findViewById<View>(R.id.downloadGemmaModelButton))
+    }
+
+    @Test
+    fun gemmaModelStatusMessage_prefersDownloadProgress() {
+        assertEquals(
+            "Gemma model: downloading 50%",
+            PreviewUiState(
+                gemmaModelDisplayName = "gemma-4-E2B-it.litertlm",
+                gemmaModelDownloadProgressText = "Gemma model: downloading 50%"
+            ).gemmaModelStatusMessage(context)
+        )
     }
 }

@@ -107,14 +107,6 @@ class MainActivity : ComponentActivity() {
             }
         }
     }
-    private val gemmaModelPickerLauncher = registerForActivityResult(
-        ActivityResultContracts.OpenDocument()
-    ) { uri ->
-        if (uri != null) {
-            previewViewModel.importGemmaModel(uri, uri.lastPathSegment)
-        }
-    }
-
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
 
@@ -178,9 +170,9 @@ class MainActivity : ComponentActivity() {
         binding.recordVideoCheckbox.setOnCheckedChangeListener(recordVideoCheckedChangeListener)
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
         binding.gemmaSubtitlesCheckbox.setOnCheckedChangeListener(gemmaSubtitlesCheckedChangeListener)
-        binding.importGemmaModelButton.setOnClickListener {
-            appContainer.sessionLog.record("MainActivity", "Import Gemma model tapped")
-            gemmaModelPickerLauncher.launch(arrayOf("*/*"))
+        binding.downloadGemmaModelButton.setOnClickListener {
+            appContainer.sessionLog.record("MainActivity", "Download Gemma model tapped")
+            previewViewModel.downloadGemmaModel()
         }
         binding.openClipButton.setOnClickListener {
             latestUiState.selectedClip?.let { clip ->
@@ -286,9 +278,8 @@ class MainActivity : ComponentActivity() {
         binding.recordVideoCheckbox.isEnabled = uiState.canChangeRecordVideo
         binding.objectDetectionCheckbox.isEnabled = uiState.canChangeObjectDetection
         binding.gemmaSubtitlesCheckbox.isEnabled = uiState.canChangeGemmaSubtitles
-        binding.gemmaModelStatusText.text = uiState.gemmaModelDisplayName?.let { displayName ->
-            getString(R.string.gemma_model_configured, displayName)
-        } ?: getString(R.string.gemma_model_not_configured)
+        binding.gemmaModelStatusText.text = uiState.gemmaModelStatusMessage(this)
+        binding.downloadGemmaModelButton.isEnabled = !uiState.isGemmaModelDownloadInProgress
         binding.openClipButton.isEnabled = uiState.canOpenSelectedClip
         binding.shareClipButton.isEnabled = uiState.canShareSelectedClip
         binding.deleteClipButton.isEnabled = uiState.canDeleteSelectedClip
@@ -631,6 +622,14 @@ internal fun PreviewUiState.previewRecordingStatusMessage(context: Context): Str
             context.getString(R.string.preview_recording_failed, status.reason)
         }
     }
+}
+
+internal fun PreviewUiState.gemmaModelStatusMessage(context: Context): String {
+    return gemmaModelDownloadProgressText
+        ?: gemmaModelDisplayName?.let { displayName ->
+            context.getString(R.string.gemma_model_configured, displayName)
+        }
+        ?: context.getString(R.string.gemma_model_not_configured)
 }
 
 internal fun canLaunchIntent(packageManager: PackageManager, intent: Intent): Boolean {

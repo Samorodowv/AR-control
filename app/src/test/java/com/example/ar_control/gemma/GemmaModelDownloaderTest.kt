@@ -292,6 +292,51 @@ class GemmaModelDownloaderTest {
         assertEquals("existing.litertlm", preferences.getModelDisplayName())
     }
 
+    @Test
+    fun downloadModelObservesCoroutineCancellationBeforeCommitAfterCopyCompletes() = runTest {
+        val targetDirectory = Files.createTempDirectory("gemma-download-pre-commit-cancellation-test").toFile()
+        val existingBytes = byteArrayOf(40, 41, 42, 43)
+        val existingModel = File(targetDirectory, "gemma-subtitles.litertlm").apply {
+            parentFile?.mkdirs()
+            writeBytes(existingBytes)
+        }
+        val preferences = FakeGemmaSubtitlePreferences().apply {
+            setModel(existingModel.absolutePath, "existing.litertlm")
+        }
+        val newBytes = byteArrayOf(1, 2, 3, 4)
+        lateinit var downloadJob: Job
+        val downloader = newDownloader(
+            targetDirectory = targetDirectory,
+            preferences = preferences,
+            openStream = { _ ->
+                GemmaModelDownloadStream(
+                    inputStream = CancellingOnEofInputStream(newBytes) {
+                        downloadJob.cancel(CancellationException("cancelled before commit"))
+                    },
+                    contentLengthBytes = newBytes.size.toLong()
+                )
+            }
+        )
+
+        val deferred = async(start = CoroutineStart.LAZY) {
+            downloadJob = currentCoroutineContext()[Job] ?: error("Missing coroutine job")
+            downloader.downloadModel()
+        }
+
+        deferred.start()
+        try {
+            deferred.await()
+            fail("Expected CancellationException")
+        } catch (expected: CancellationException) {
+            assertEquals("cancelled before commit", expected.message)
+        }
+
+        assertTrue(targetDirectory.listFiles { file -> file.extension == "tmp" }.orEmpty().isEmpty())
+        assertArrayEquals(existingBytes, existingModel.readBytes())
+        assertEquals(existingModel.absolutePath, preferences.getModelPath())
+        assertEquals("existing.litertlm", preferences.getModelDisplayName())
+    }
+
     private fun newDownloader(
         targetDirectory: File,
         preferences: GemmaSubtitlePreferences,
@@ -367,6 +412,32 @@ private class CancellingAfterBytesInputStream(
             return count
         }
         throw CancellationException("cancelled during copy")
+    }
+}
+
+private class CancellingOnEofInputStream(
+    private val bytes: ByteArray,
+    private val onEof: () -> Unit
+) : InputStream() {
+    private var offset = 0
+
+    override fun read(): Int {
+        if (offset < bytes.size) {
+            return bytes[offset++].toInt() and 0xff
+        }
+        onEof()
+        return -1
+    }
+
+    override fun read(buffer: ByteArray, off: Int, len: Int): Int {
+        if (offset < bytes.size) {
+            val count = minOf(len, bytes.size - offset)
+            bytes.copyInto(buffer, off, offset, offset + count)
+            offset += count
+            return count
+        }
+        onEof()
+        return -1
     }
 }
 

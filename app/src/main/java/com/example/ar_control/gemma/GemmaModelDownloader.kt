@@ -72,6 +72,7 @@ class GemmaModelDownloader internal constructor(
             val targetFile = File(targetDirectory, MODEL_FILE_NAME)
             tempFile = File.createTempFile(MODEL_FILE_NAME, ".tmp", targetDirectory)
             copyWithProgress(stream.inputStream, tempFile, stream.contentLengthBytes, onProgress)
+            currentCoroutineContext().ensureActive()
             Files.move(
                 tempFile.toPath(),
                 targetFile.toPath(),
@@ -163,6 +164,7 @@ private suspend fun copyWithProgress(
             currentCoroutineContext().ensureActive()
         }
     }
+    currentCoroutineContext().ensureActive()
 }
 
 private const val MODEL_DIRECTORY_NAME = "models"

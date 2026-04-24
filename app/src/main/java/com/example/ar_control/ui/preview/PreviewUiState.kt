@@ -19,6 +19,8 @@ data class PreviewUiState(
     val objectDetectionEnabled: Boolean = false,
     val gemmaSubtitlesEnabled: Boolean = false,
     val gemmaModelDisplayName: String? = null,
+    val isGemmaModelDownloadInProgress: Boolean = false,
+    val gemmaModelDownloadProgressText: String? = null,
     val gemmaSubtitleText: String = "",
     val recordingStatus: RecordingStatus = RecordingStatus.Idle,
     val detectedObjects: List<DetectedObject> = emptyList(),

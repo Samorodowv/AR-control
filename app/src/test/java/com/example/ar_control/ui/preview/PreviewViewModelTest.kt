@@ -13,6 +13,9 @@ import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.InMemorySessionLog
 import com.example.ar_control.gemma.GemmaCaptionSession
 import com.example.ar_control.gemma.GemmaFrameCaptioner
+import com.example.ar_control.gemma.GemmaModelDownloadSource
+import com.example.ar_control.gemma.GemmaModelDownloadStream
+import com.example.ar_control.gemma.GemmaModelDownloader
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.recording.ClipRepository
 import com.example.ar_control.recording.DetectionAnnotationSink
@@ -26,7 +29,10 @@ import com.example.ar_control.recording.VideoFramePixelFormat
 import com.example.ar_control.recording.VideoRecorder
 import com.example.ar_control.recovery.RecoveryManager
 import com.example.ar_control.recovery.RecoverySnapshot
+import java.io.ByteArrayInputStream
 import java.io.Closeable
+import java.net.URL
+import java.nio.file.Files
 import com.example.ar_control.usb.EyeUsbConfigurator
 import com.example.ar_control.usb.UsbPermissionGateway
 import com.example.ar_control.xreal.GlassesSession
@@ -38,6 +44,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.test.StandardTestDispatcher
+import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.resetMain
 import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.test.setMain
@@ -241,6 +248,66 @@ class PreviewViewModelTest {
         assertTrue(viewModel.uiState.value.gemmaSubtitlesEnabled)
         assertTrue(gemmaSubtitlePreferences.isGemmaSubtitlesEnabled())
         assertEquals(1, gemmaSubtitlePreferences.setEnabledCalls)
+    }
+
+    @Test
+    fun downloadGemmaModel_updatesUiStateAndPreferenceStore() = runTest {
+        val preferences = FakeGemmaSubtitlePreferences()
+        val downloader = GemmaModelDownloader(
+            targetDirectory = Files.createTempDirectory("view-model-gemma-download").toFile(),
+            preferences = preferences,
+            source = GemmaModelDownloadSource(
+                url = URL("https://example.test/gemma.litertlm"),
+                displayName = "gemma-4-E2B-it.litertlm"
+            ),
+            openStream = {
+                GemmaModelDownloadStream(
+                    inputStream = ByteArrayInputStream(byteArrayOf(1, 2, 3)),
+                    contentLengthBytes = 3L
+                )
+            },
+            ioDispatcher = dispatcher
+        )
+        val viewModel = buildViewModel(
+            gemmaSubtitlePreferences = preferences,
+            gemmaModelDownloader = downloader,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.downloadGemmaModel()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isGemmaModelDownloadInProgress)
+        assertEquals("gemma-4-E2B-it.litertlm", viewModel.uiState.value.gemmaModelDisplayName)
+        assertEquals("gemma-4-E2B-it.litertlm", preferences.getModelDisplayName())
+        assertEquals(null, viewModel.uiState.value.gemmaModelDownloadProgressText)
+    }
+
+    @Test
+    fun downloadGemmaModelFailure_setsErrorAndLeavesModelNameEmpty() = runTest {
+        val preferences = FakeGemmaSubtitlePreferences()
+        val downloader = GemmaModelDownloader(
+            targetDirectory = Files.createTempDirectory("view-model-gemma-download-failure").toFile(),
+            preferences = preferences,
+            source = GemmaModelDownloadSource(
+                url = URL("https://example.test/gemma.litertlm"),
+                displayName = "gemma-4-E2B-it.litertlm"
+            ),
+            openStream = { null },
+            ioDispatcher = dispatcher
+        )
+        val viewModel = buildViewModel(
+            gemmaSubtitlePreferences = preferences,
+            gemmaModelDownloader = downloader,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.downloadGemmaModel()
+        advanceUntilIdle()
+
+        assertFalse(viewModel.uiState.value.isGemmaModelDownloadInProgress)
+        assertEquals("Could not download Gemma model", viewModel.uiState.value.errorMessage)
+        assertEquals(null, viewModel.uiState.value.gemmaModelDisplayName)
     }
 
     @Test
@@ -1195,6 +1262,7 @@ private fun buildViewModel(
     objectDetector: ObjectDetector = FakeObjectDetector(),
     detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     gemmaSubtitlePreferences: GemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(),
+    gemmaModelDownloader: GemmaModelDownloader? = null,
     gemmaFrameCaptioner: GemmaFrameCaptioner = FakeGemmaFrameCaptioner(),
     clipRepository: ClipRepository = FakeClipRepository(),
     videoRecorder: VideoRecorder = FakeVideoRecorder(),
@@ -1213,6 +1281,7 @@ private fun buildViewModel(
         objectDetector = objectDetector,
         detectionAnnotationSink = detectionAnnotationSink,
         gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+        gemmaModelDownloader = gemmaModelDownloader,
         gemmaFrameCaptioner = gemmaFrameCaptioner,
         clipRepository = clipRepository,
         videoRecorder = videoRecorder,

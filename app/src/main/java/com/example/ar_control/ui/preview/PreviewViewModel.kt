@@ -1,6 +1,5 @@
 package com.example.ar_control.ui.preview
 
-import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ar_control.camera.CameraSource
@@ -12,8 +11,9 @@ import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
 import com.example.ar_control.gemma.GemmaCaptionSession
 import com.example.ar_control.gemma.GemmaFrameCaptioner
-import com.example.ar_control.gemma.GemmaModelImportResult
-import com.example.ar_control.gemma.GemmaModelImporter
+import com.example.ar_control.gemma.GemmaModelDownloadProgress
+import com.example.ar_control.gemma.GemmaModelDownloadResult
+import com.example.ar_control.gemma.GemmaModelDownloader
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipRepository
@@ -56,7 +56,7 @@ class PreviewViewModel(
     private val objectDetector: ObjectDetector = NoOpObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
-    private val gemmaModelImporter: GemmaModelImporter? = null,
+    private val gemmaModelDownloader: GemmaModelDownloader? = null,
     private val gemmaFrameCaptioner: GemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
@@ -226,25 +226,57 @@ class PreviewViewModel(
         _uiState.value = applyRecoveryState(_uiState.value.copy(gemmaSubtitlesEnabled = enabled))
     }
 
-    fun importGemmaModel(uri: Uri, displayName: String?) {
-        val importer = gemmaModelImporter ?: return
+    fun downloadGemmaModel() {
+        val downloader = gemmaModelDownloader ?: return
+        if (_uiState.value.isGemmaModelDownloadInProgress) {
+            return
+        }
         viewModelScope.launch {
-            sessionLog.record("PreviewViewModel", "Gemma model import started")
-            when (val result = importer.importModel(uri, displayName)) {
-                is GemmaModelImportResult.Imported -> {
-                    sessionLog.record("PreviewViewModel", "Gemma model import finished: ${result.displayName}")
+            sessionLog.record("PreviewViewModel", "Gemma model download started")
+            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                isGemmaModelDownloadInProgress = true,
+                gemmaModelDownloadProgressText = GEMMA_MODEL_DOWNLOADING,
+                errorMessage = null
+            ))
+            when (val result = downloader.downloadModel(::onGemmaModelDownloadProgress)) {
+                is GemmaModelDownloadResult.Downloaded -> {
+                    sessionLog.record("PreviewViewModel", "Gemma model download finished: ${result.displayName}")
                     _uiState.value = applyRecoveryState(_uiState.value.copy(
+                        isGemmaModelDownloadInProgress = false,
+                        gemmaModelDownloadProgressText = null,
                         gemmaModelDisplayName = result.displayName,
                         errorMessage = null
                     ))
                 }
 
-                is GemmaModelImportResult.Failed -> {
-                    sessionLog.record("PreviewViewModel", "Gemma model import failed: ${result.reason}")
-                    _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = result.reason))
+                is GemmaModelDownloadResult.Failed -> {
+                    sessionLog.record("PreviewViewModel", "Gemma model download failed: ${result.reason}")
+                    _uiState.value = applyRecoveryState(_uiState.value.copy(
+                        isGemmaModelDownloadInProgress = false,
+                        gemmaModelDownloadProgressText = null,
+                        errorMessage = result.reason
+                    ))
                 }
             }
         }
+    }
+
+    @Suppress("UNUSED_PARAMETER")
+    fun importGemmaModel(uri: Any, displayName: String?) = Unit
+
+    private fun onGemmaModelDownloadProgress(progress: GemmaModelDownloadProgress) {
+        _uiState.value = applyRecoveryState(_uiState.value.copy(
+            gemmaModelDownloadProgressText = progress.toStatusText()
+        ))
+    }
+
+    private fun GemmaModelDownloadProgress.toStatusText(): String {
+        val total = totalBytes ?: return GEMMA_MODEL_DOWNLOADING
+        if (total <= 0L) {
+            return GEMMA_MODEL_DOWNLOADING
+        }
+        val percent = ((bytesDownloaded * 100L) / total).coerceIn(0L, 100L)
+        return "Gemma model: downloading $percent%"
     }
 
     fun confirmSafeModeExit() {
@@ -947,6 +979,7 @@ class PreviewViewModel(
     private companion object {
         const val RECORDING_NOT_STARTED = "recording_not_started"
         const val GEMMA_MODEL_NOT_CONFIGURED = "Gemma model is not configured"
+        const val GEMMA_MODEL_DOWNLOADING = "Gemma model: downloading..."
     }
 }
 

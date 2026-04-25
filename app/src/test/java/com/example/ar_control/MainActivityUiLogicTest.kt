@@ -102,13 +102,34 @@ class MainActivityUiLogicTest {
     }
 
     @Test
-    fun gemmaModelStatusMessage_prefersDownloadProgress() {
+    fun gemmaModelStatusMessage_ignoresDownloadProgress() {
+        assertEquals(
+            "Gemma model: gemma-4-E2B-it.litertlm",
+            PreviewUiState(
+                gemmaModelDisplayName = "gemma-4-E2B-it.litertlm",
+                gemmaModelDownloadProgressText = "Gemma model: downloading 50%"
+            ).gemmaModelStatusMessage(context)
+        )
+    }
+
+    @Test
+    fun gemmaModelDownloadButtonText_prefersDownloadProgress() {
         assertEquals(
             "Gemma model: downloading 50%",
             PreviewUiState(
                 gemmaModelDisplayName = "gemma-4-E2B-it.litertlm",
                 gemmaModelDownloadProgressText = "Gemma model: downloading 50%"
-            ).gemmaModelStatusMessage(context)
+            ).gemmaModelDownloadButtonText(context)
+        )
+    }
+
+    @Test
+    fun gemmaModelDownloadButtonText_usesDefaultWhenNotDownloading() {
+        assertEquals(
+            "Download Gemma model",
+            PreviewUiState(
+                gemmaModelDisplayName = "gemma-4-E2B-it.litertlm"
+            ).gemmaModelDownloadButtonText(context)
         )
     }
 }

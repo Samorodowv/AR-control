@@ -279,6 +279,7 @@ class MainActivity : ComponentActivity() {
         binding.objectDetectionCheckbox.isEnabled = uiState.canChangeObjectDetection
         binding.gemmaSubtitlesCheckbox.isEnabled = uiState.canChangeGemmaSubtitles
         binding.gemmaModelStatusText.text = uiState.gemmaModelStatusMessage(this)
+        binding.downloadGemmaModelButton.text = uiState.gemmaModelDownloadButtonText(this)
         binding.downloadGemmaModelButton.isEnabled = !uiState.isGemmaModelDownloadInProgress
         binding.openClipButton.isEnabled = uiState.canOpenSelectedClip
         binding.shareClipButton.isEnabled = uiState.canShareSelectedClip
@@ -625,11 +626,14 @@ internal fun PreviewUiState.previewRecordingStatusMessage(context: Context): Str
 }
 
 internal fun PreviewUiState.gemmaModelStatusMessage(context: Context): String {
-    return gemmaModelDownloadProgressText
-        ?: gemmaModelDisplayName?.let { displayName ->
+    return gemmaModelDisplayName?.let { displayName ->
             context.getString(R.string.gemma_model_configured, displayName)
         }
         ?: context.getString(R.string.gemma_model_not_configured)
+}
+
+internal fun PreviewUiState.gemmaModelDownloadButtonText(context: Context): String {
+    return gemmaModelDownloadProgressText ?: context.getString(R.string.download_gemma_model)
 }
 
 internal fun canLaunchIntent(packageManager: PackageManager, intent: Intent): Boolean {

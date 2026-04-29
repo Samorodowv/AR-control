@@ -205,6 +205,15 @@ class PreviewViewModel(
         _uiState.value = applyRecoveryState(_uiState.value.copy(objectDetectionEnabled = enabled))
     }
 
+    fun setTransparentHudEnabled(enabled: Boolean) {
+        if (recoverySnapshot.isSafeMode) {
+            sessionLog.record("PreviewViewModel", "Transparent HUD preference change ignored because safe mode is active")
+            return
+        }
+        sessionLog.record("PreviewViewModel", "Transparent HUD preference changed: $enabled")
+        _uiState.value = applyRecoveryState(_uiState.value.copy(transparentHudEnabled = enabled))
+    }
+
     fun confirmSafeModeExit() {
         viewModelScope.launch {
             sessionLog.record("PreviewViewModel", "Safe mode exit confirmed by user")
@@ -221,6 +230,7 @@ class PreviewViewModel(
                     zoomFactor = minZoomFactor,
                     recordVideoEnabled = recordingPreferences.isRecordingEnabled(),
                     objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled(),
+                    transparentHudEnabled = false,
                     recordingStatus = RecordingStatus.Idle,
                     errorMessage = null
                 )
@@ -664,12 +674,14 @@ class PreviewViewModel(
                 zoomFactor = minZoomFactor,
                 recordVideoEnabled = false,
                 objectDetectionEnabled = false,
+                transparentHudEnabled = false,
                 recordingStatus = RecordingStatus.Idle,
                 isSafeMode = true,
                 safeModeReason = snapshot.safeModeReason,
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = false,
-                canChangeObjectDetection = false
+                canChangeObjectDetection = false,
+                canChangeTransparentHud = false
             )
         } else {
             baseState.copy(
@@ -677,7 +689,8 @@ class PreviewViewModel(
                 safeModeReason = snapshot.safeModeReason,
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = true,
-                canChangeObjectDetection = true
+                canChangeObjectDetection = true,
+                canChangeTransparentHud = true
             )
         }
     }

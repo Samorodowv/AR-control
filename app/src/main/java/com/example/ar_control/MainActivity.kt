@@ -63,6 +63,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var recordedClipAdapter: RecordedClipAdapter
     private lateinit var recordVideoCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private lateinit var objectDetectionCheckedChangeListener: CompoundButton.OnCheckedChangeListener
+    private lateinit var transparentHudCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private val previewBackButtonBaseMargin by lazy {
         resources.getDimensionPixelSize(R.dimen.preview_back_button_margin)
     }
@@ -134,6 +135,14 @@ class MainActivity : ComponentActivity() {
                 )
                 previewViewModel.setObjectDetectionEnabled(isChecked)
             }
+        transparentHudCheckedChangeListener =
+            CompoundButton.OnCheckedChangeListener { _, isChecked ->
+                appContainer.sessionLog.record(
+                    "MainActivity",
+                    "Transparent HUD checkbox changed: $isChecked"
+                )
+                previewViewModel.setTransparentHudEnabled(isChecked)
+            }
 
         previewBackPressedCallback = onBackPressedDispatcher.addCallback(this, false) {
             appContainer.sessionLog.record("MainActivity", "Hardware back pressed in fullscreen preview")
@@ -161,6 +170,7 @@ class MainActivity : ComponentActivity() {
         }
         binding.recordVideoCheckbox.setOnCheckedChangeListener(recordVideoCheckedChangeListener)
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
+        binding.transparentHudCheckbox.setOnCheckedChangeListener(transparentHudCheckedChangeListener)
         binding.openClipButton.setOnClickListener {
             latestUiState.selectedClip?.let { clip ->
                 openClipSafely(clip)
@@ -251,8 +261,10 @@ class MainActivity : ComponentActivity() {
         binding.stopPreviewButton.isEnabled = uiState.canStopPreview
         renderRecordVideoCheckbox(uiState.recordVideoEnabled)
         renderObjectDetectionCheckbox(uiState.objectDetectionEnabled)
+        renderTransparentHudCheckbox(uiState.transparentHudEnabled)
         binding.recordVideoCheckbox.isEnabled = uiState.canChangeRecordVideo
         binding.objectDetectionCheckbox.isEnabled = uiState.canChangeObjectDetection
+        binding.transparentHudCheckbox.isEnabled = uiState.canChangeTransparentHud
         binding.openClipButton.isEnabled = uiState.canOpenSelectedClip
         binding.shareClipButton.isEnabled = uiState.canShareSelectedClip
         binding.deleteClipButton.isEnabled = uiState.canDeleteSelectedClip
@@ -266,7 +278,12 @@ class MainActivity : ComponentActivity() {
         binding.previewContainer.alpha = if (uiState.isPreviewRunning) 1f else 0f
         binding.previewContainer.isClickable = uiState.isPreviewRunning
         binding.previewContainer.isFocusable = uiState.isPreviewRunning
+        binding.previewTextureView.alpha = previewTextureAlpha(
+            isPreviewRunning = uiState.isPreviewRunning,
+            transparentHudEnabled = uiState.transparentHudEnabled
+        )
         binding.detectionOverlayView.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
+        binding.detectionOverlayView.alpha = 1f
         binding.detectionOverlayView.setDetections(uiState.detectedObjects)
         binding.previewBackButton.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
         binding.previewBackButton.isEnabled = uiState.isPreviewRunning
@@ -345,6 +362,15 @@ class MainActivity : ComponentActivity() {
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(null)
         binding.objectDetectionCheckbox.isChecked = objectDetectionEnabled
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
+    }
+
+    private fun renderTransparentHudCheckbox(transparentHudEnabled: Boolean) {
+        if (binding.transparentHudCheckbox.isChecked == transparentHudEnabled) {
+            return
+        }
+        binding.transparentHudCheckbox.setOnCheckedChangeListener(null)
+        binding.transparentHudCheckbox.isChecked = transparentHudEnabled
+        binding.transparentHudCheckbox.setOnCheckedChangeListener(transparentHudCheckedChangeListener)
     }
 
     private fun renderRecoveryState(uiState: PreviewUiState) {
@@ -583,4 +609,11 @@ internal fun PreviewUiState.previewRecordingStatusMessage(context: Context): Str
 
 internal fun canLaunchIntent(packageManager: PackageManager, intent: Intent): Boolean {
     return intent.resolveActivity(packageManager) != null
+}
+
+internal fun previewTextureAlpha(
+    isPreviewRunning: Boolean,
+    transparentHudEnabled: Boolean
+): Float {
+    return if (isPreviewRunning && transparentHudEnabled) 0f else 1f
 }

@@ -207,6 +207,15 @@ class PreviewViewModelTest {
     }
 
     @Test
+    fun setTransparentHudEnabled_updatesUiState() = runTest {
+        val viewModel = buildViewModel(cleanupScope = cleanupScope)
+
+        viewModel.setTransparentHudEnabled(true)
+
+        assertTrue(viewModel.uiState.value.transparentHudEnabled)
+    }
+
+    @Test
     fun init_whenSafeModeActive_disablesCameraAndMasksRecordingPreference() = runTest {
         val recoveryManager = FakeRecoveryManager(
             snapshot = RecoverySnapshot(

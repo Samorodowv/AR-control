@@ -5,6 +5,7 @@ import android.content.Intent
 import android.view.ContextThemeWrapper
 import android.view.LayoutInflater
 import android.widget.FrameLayout
+import com.google.android.material.checkbox.MaterialCheckBox
 import com.example.ar_control.recording.RecordingStatus
 import com.example.ar_control.ui.preview.PreviewUiState
 import org.junit.Assert.assertNotNull
@@ -61,6 +62,13 @@ class MainActivityUiLogicTest {
     }
 
     @Test
+    fun previewTextureAlpha_hidesPreviewOnlyWhenHudModeIsRunning() {
+        assertEquals(0f, previewTextureAlpha(isPreviewRunning = true, transparentHudEnabled = true))
+        assertEquals(1f, previewTextureAlpha(isPreviewRunning = true, transparentHudEnabled = false))
+        assertEquals(1f, previewTextureAlpha(isPreviewRunning = false, transparentHudEnabled = true))
+    }
+
+    @Test
     fun canLaunchIntent_detectsWhetherAnActivityCanHandleTheIntent() {
         assertTrue(
             canLaunchIntent(
@@ -86,5 +94,17 @@ class MainActivityUiLogicTest {
         )
 
         assertNotNull(view)
+    }
+
+    @Test
+    fun mainActivityLayout_containsTransparentHudCheckbox() {
+        val themedContext = ContextThemeWrapper(context, R.style.Theme_AR_Control)
+        val view = LayoutInflater.from(themedContext).inflate(
+            R.layout.activity_main,
+            FrameLayout(themedContext),
+            false
+        )
+
+        assertNotNull(view.findViewById<MaterialCheckBox>(R.id.transparentHudCheckbox))
     }
 }

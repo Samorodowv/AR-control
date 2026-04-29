@@ -62,6 +62,21 @@ Use this checklist after preview bring-up succeeds:
 11. Start and stop preview again.
 12. Confirm no new clip is created while recording is disabled.
 
+## Transparent HUD Preview Check
+
+Use this checklist to validate the see-through glasses experiment:
+
+1. Connect `XREAL One Pro` to the `Huawei P60 Pro`.
+2. Open the app.
+3. Enable `Transparent HUD`.
+4. Tap `Enable Camera`.
+5. Tap `Start Preview`.
+6. Confirm the glasses show a pure-black background with only overlays visible.
+7. Confirm black areas are optically see-through in the glasses.
+8. Exit fullscreen preview.
+9. Disable `Transparent HUD`.
+10. Tap `Start Preview` again and confirm the normal camera preview returns.
+
 ## Commands
 
 Run these from the repository root when a real device is attached:

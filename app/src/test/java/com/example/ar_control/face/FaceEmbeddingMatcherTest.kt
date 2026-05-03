@@ -55,6 +55,64 @@ class FaceEmbeddingMatcherTest {
     }
 
     @Test
+    fun findBestMatch_returnsNullWhenSecondBestIsTooClose() {
+        val matcher = FaceEmbeddingMatcher(
+            matchThreshold = 0.80f,
+            minSimilarityMargin = 0.03f
+        )
+        val rememberedFaces = listOf(
+            RememberedFace(
+                id = "face-1",
+                label = "Face 1",
+                embedding = FaceEmbedding(floatArrayOf(1f, 0f)),
+                accessStatus = FaceAccessStatus.BANNED
+            ),
+            RememberedFace(
+                id = "face-2",
+                label = "Face 2",
+                embedding = FaceEmbedding(floatArrayOf(0.999f, 0.045f)),
+                accessStatus = FaceAccessStatus.APPROVED
+            )
+        )
+
+        val match = matcher.findBestMatch(
+            probe = FaceEmbedding(floatArrayOf(1f, 0f)),
+            rememberedFaces = rememberedFaces
+        )
+
+        assertNull(match)
+    }
+
+    @Test
+    fun findBestMatch_returnsBestWhenMarginIsLargeEnough() {
+        val matcher = FaceEmbeddingMatcher(
+            matchThreshold = 0.80f,
+            minSimilarityMargin = 0.03f
+        )
+        val rememberedFaces = listOf(
+            RememberedFace(
+                id = "face-1",
+                label = "Face 1",
+                embedding = FaceEmbedding(floatArrayOf(1f, 0f)),
+                accessStatus = FaceAccessStatus.BANNED
+            ),
+            RememberedFace(
+                id = "face-2",
+                label = "Face 2",
+                embedding = FaceEmbedding(floatArrayOf(0f, 1f)),
+                accessStatus = FaceAccessStatus.APPROVED
+            )
+        )
+
+        val match = matcher.findBestMatch(
+            probe = FaceEmbedding(floatArrayOf(1f, 0f)),
+            rememberedFaces = rememberedFaces
+        )
+
+        assertEquals("face-1", match?.face?.id)
+    }
+
+    @Test
     fun cosineSimilarity_handlesZeroVectors() {
         assertEquals(
             0f,

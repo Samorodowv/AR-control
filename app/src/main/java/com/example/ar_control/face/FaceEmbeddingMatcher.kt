@@ -3,22 +3,30 @@ package com.example.ar_control.face
 import kotlin.math.sqrt
 
 class FaceEmbeddingMatcher(
-    private val matchThreshold: Float = DEFAULT_MATCH_THRESHOLD
+    private val matchThreshold: Float = DEFAULT_MATCH_THRESHOLD,
+    private val minSimilarityMargin: Float = DEFAULT_MIN_SIMILARITY_MARGIN
 ) {
     fun findBestMatch(
         probe: FaceEmbedding,
         rememberedFaces: List<RememberedFace>
     ): FaceMatch? {
-        return rememberedFaces
-            .asSequence()
+        val ranked = rememberedFaces
             .map { face ->
                 FaceMatch(
                     face = face,
                     similarity = cosineSimilarity(probe, face.embedding)
                 )
             }
-            .filter { match -> match.similarity >= matchThreshold }
-            .maxByOrNull { match -> match.similarity }
+            .sortedByDescending { match -> match.similarity }
+        val best = ranked.firstOrNull() ?: return null
+        if (best.similarity < matchThreshold) {
+            return null
+        }
+        val second = ranked.getOrNull(1)
+        if (second != null && best.similarity - second.similarity < minSimilarityMargin) {
+            return null
+        }
+        return best
     }
 
     data class FaceMatch(
@@ -27,7 +35,8 @@ class FaceEmbeddingMatcher(
     )
 
     companion object {
-        const val DEFAULT_MATCH_THRESHOLD = 0.72f
+        const val DEFAULT_MATCH_THRESHOLD = 0.80f
+        const val DEFAULT_MIN_SIMILARITY_MARGIN = 0.04f
 
         fun cosineSimilarity(first: FaceEmbedding, second: FaceEmbedding): Float {
             require(first.values.size == second.values.size) {

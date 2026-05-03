@@ -28,11 +28,12 @@ class BackgroundObjectDetectionSessionTest {
         val latch = CountDownLatch(1)
         val session = BackgroundObjectDetectionSession(
             previewSize = PreviewSize(width = 640, height = 480),
-            processor = processor
-        ) { detections ->
-            publishedDetections += detections
-            latch.countDown()
-        }
+            processor = processor,
+            onDetectionsUpdated = { detections ->
+                publishedDetections += detections
+                latch.countDown()
+            }
+        )
 
         try {
             assertEquals(com.example.ar_control.recording.VideoFramePixelFormat.YUV420SP, session.inputTarget.pixelFormat)
@@ -54,10 +55,11 @@ class BackgroundObjectDetectionSessionTest {
         val publishedDetections = mutableListOf<List<DetectedObject>>()
         val session = BackgroundObjectDetectionSession(
             previewSize = PreviewSize(width = 640, height = 480),
-            processor = processor
-        ) { detections ->
-            publishedDetections += detections
-        }
+            processor = processor,
+            onDetectionsUpdated = { detections ->
+                publishedDetections += detections
+            }
+        )
 
         session.close()
         session.inputTarget.frameConsumer.onFrame(ByteBuffer.wrap(byteArrayOf(1, 2, 3)), 77L)
@@ -71,8 +73,9 @@ class BackgroundObjectDetectionSessionTest {
         val processor = BlockingFrameDetectionProcessor()
         val session = BackgroundObjectDetectionSession(
             previewSize = PreviewSize(width = 640, height = 480),
-            processor = processor
-        ) { }
+            processor = processor,
+            onDetectionsUpdated = {}
+        )
 
         try {
             session.inputTarget.frameConsumer.onFrame(ByteBuffer.wrap(byteArrayOf(1)), 10L)
@@ -98,6 +101,7 @@ class BackgroundObjectDetectionSessionTest {
 private class FakeFrameDetectionProcessor(
     private val detections: List<DetectedObject>
 ) : FrameDetectionProcessor {
+    override val runtimeBackendLabel: String = "CPU"
     val frames = mutableListOf<ByteArray>()
     val timestamps = mutableListOf<Long>()
 
@@ -115,6 +119,7 @@ private class FakeFrameDetectionProcessor(
 }
 
 private class BlockingFrameDetectionProcessor : FrameDetectionProcessor {
+    override val runtimeBackendLabel: String = "CPU"
     val frames = CopyOnWriteArrayList<ByteArray>()
     val timestamps = CopyOnWriteArrayList<Long>()
     val firstFrameStarted = CountDownLatch(1)

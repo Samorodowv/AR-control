@@ -13,7 +13,7 @@ lifecycle = "2.9.4"
 work = "2.11.2"
 coroutines = "1.10.2"
 robolectric = "4.16"
-litert = "1.4.1"
+litert = "2.1.4"
 litertLm = "0.10.0"
 
 [libraries]

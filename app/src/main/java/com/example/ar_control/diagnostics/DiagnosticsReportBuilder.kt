@@ -31,6 +31,8 @@ class DiagnosticsReportBuilder(
             uiState.gemmaModelDownloadProgressText?.let {
                 appendLine("Gemma model download status: $it")
             }
+            appendLine("Inference FPS: ${String.format(Locale.US, "%.2f", uiState.inferenceFps)}")
+            appendLine("Inference backend: ${uiState.inferenceBackendLabel ?: "none"}")
             appendLine("Recording status: ${uiState.recordingStatus}")
             appendLine("Safe mode: ${uiState.isSafeMode}")
             uiState.safeModeReason?.let { appendLine("Safe mode reason: $it") }

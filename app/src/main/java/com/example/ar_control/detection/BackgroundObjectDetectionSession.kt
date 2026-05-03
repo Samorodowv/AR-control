@@ -1,6 +1,7 @@
 package com.example.ar_control.detection
 
 import com.example.ar_control.camera.PreviewSize
+import com.example.ar_control.performance.FramesPerSecondTracker
 import com.example.ar_control.recording.RecordingInputTarget
 import com.example.ar_control.recording.VideoFrameConsumer
 import com.example.ar_control.recording.VideoFramePixelFormat
@@ -10,11 +11,13 @@ import java.util.concurrent.atomic.AtomicBoolean
 class BackgroundObjectDetectionSession(
     private val previewSize: PreviewSize,
     private val processor: FrameDetectionProcessor,
-    private val onDetectionsUpdated: (List<DetectedObject>) -> Unit
+    private val onDetectionsUpdated: (List<DetectedObject>) -> Unit,
+    private val onSessionStatsUpdated: (DetectionSessionStats) -> Unit = {}
 ) : ObjectDetectionSession {
 
     private val isClosed = AtomicBoolean(false)
     private val frameLock = Object()
+    private val inferenceFpsTracker = FramesPerSecondTracker()
     private val workerThread = Thread(::runLoop, WORKER_THREAD_NAME).apply {
         isDaemon = true
         start()
@@ -30,6 +33,15 @@ class BackgroundObjectDetectionSession(
                 enqueueFrame(frame, timestampNanos)
             }
         )
+
+    init {
+        onSessionStatsUpdated(
+            DetectionSessionStats(
+                backendLabel = processor.runtimeBackendLabel,
+                inferenceFps = 0f
+            )
+        )
+    }
 
     override fun close() {
         if (!isClosed.compareAndSet(false, true)) {
@@ -68,7 +80,14 @@ class BackgroundObjectDetectionSession(
             while (true) {
                 val frame = awaitNextFrame() ?: return
                 val detections = processFrame(frame) ?: return
+                val inferenceFps = inferenceFpsTracker.recordFrame(System.nanoTime()) ?: 0f
                 if (!isClosed.get()) {
+                    onSessionStatsUpdated(
+                        DetectionSessionStats(
+                            backendLabel = processor.runtimeBackendLabel,
+                            inferenceFps = inferenceFps
+                        )
+                    )
                     onDetectionsUpdated(detections)
                 }
             }

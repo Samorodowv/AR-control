@@ -29,6 +29,8 @@ data class PreviewUiState(
     val gemmaSubtitleText: String = "",
     val recordingStatus: RecordingStatus = RecordingStatus.Idle,
     val detectedObjects: List<DetectedObject> = emptyList(),
+    val inferenceFps: Float = 0f,
+    val inferenceBackendLabel: String? = null,
     val recordedClips: List<RecordedClip> = emptyList(),
     val selectedClipId: String? = null,
     val errorMessage: String? = null,

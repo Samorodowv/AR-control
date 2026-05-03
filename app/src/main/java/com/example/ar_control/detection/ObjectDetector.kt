@@ -8,7 +8,8 @@ import com.example.ar_control.recording.VideoFramePixelFormat
 interface ObjectDetector {
     fun start(
         previewSize: PreviewSize,
-        onDetectionsUpdated: (List<DetectedObject>) -> Unit
+        onDetectionsUpdated: (List<DetectedObject>) -> Unit,
+        onSessionStatsUpdated: (DetectionSessionStats) -> Unit = {}
     ): ObjectDetectionSession
 }
 
@@ -21,7 +22,8 @@ interface ObjectDetectionSession : AutoCloseable {
 object NoOpObjectDetector : ObjectDetector {
     override fun start(
         previewSize: PreviewSize,
-        onDetectionsUpdated: (List<DetectedObject>) -> Unit
+        onDetectionsUpdated: (List<DetectedObject>) -> Unit,
+        onSessionStatsUpdated: (DetectionSessionStats) -> Unit
     ): ObjectDetectionSession {
         return object : ObjectDetectionSession {
             override val inputTarget: RecordingInputTarget.FrameCallbackTarget =

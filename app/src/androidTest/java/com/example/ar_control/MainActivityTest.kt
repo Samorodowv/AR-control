@@ -31,6 +31,7 @@ import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.di.AppContainer
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.InMemorySessionLog
+import com.example.ar_control.gemma.DEFAULT_GEMMA_CAPTION_PROMPT
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipFileSharer
@@ -389,6 +390,7 @@ private class FakeDetectionPreferences(
 
 private class FakeGemmaSubtitlePreferences : GemmaSubtitlePreferences {
     private var enabled = false
+    private var captionPrompt = DEFAULT_GEMMA_CAPTION_PROMPT
     private var modelPath: String? = null
     private var modelDisplayName: String? = null
 
@@ -396,6 +398,12 @@ private class FakeGemmaSubtitlePreferences : GemmaSubtitlePreferences {
 
     override fun setGemmaSubtitlesEnabled(enabled: Boolean) {
         this.enabled = enabled
+    }
+
+    override fun getCaptionPrompt(): String = captionPrompt
+
+    override fun setCaptionPrompt(prompt: String) {
+        captionPrompt = prompt
     }
 
     override fun getModelPath(): String? = modelPath

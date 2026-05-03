@@ -71,6 +71,7 @@ class MlKitFaceRecognizer(
         )
         private val closed = AtomicBoolean(false)
         private val frameLock = Object()
+        private val frameAdmissionGate = FaceFrameAdmissionGate(MIN_FRAME_INTERVAL_NANOS)
         private val workerThread = Thread(::runLoop, WORKER_THREAD_NAME).apply {
             isDaemon = true
             start()
@@ -129,9 +130,11 @@ class MlKitFaceRecognizer(
             if (closed.get()) {
                 return
             }
-            val bytes = frame.asReadOnlyBuffer().let { buffer ->
-                ByteArray(buffer.remaining()).also(buffer::get)
-            }
+            val bytes = frameAdmissionGate.runIfAccepted(timestampNanos) {
+                frame.asReadOnlyBuffer().let { buffer ->
+                    ByteArray(buffer.remaining()).also(buffer::get)
+                }
+            } ?: return
             synchronized(frameLock) {
                 if (closed.get()) {
                     return

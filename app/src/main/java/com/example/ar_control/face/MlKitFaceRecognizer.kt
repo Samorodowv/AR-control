@@ -1,7 +1,6 @@
 package com.example.ar_control.face
 
 import android.content.Context
-import android.graphics.Bitmap
 import android.graphics.Rect
 import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.detection.DetectionBoundingBox
@@ -227,8 +226,15 @@ class MlKitFaceRecognizer(
                 val nextState = preEmbeddingState ?: run {
                     val face = acceptedCandidates.single().first
                     val stableBox = stableBoxes.single()
-                    val bitmap = bitmapFromNv21(nv21, previewSize)
-                    val faceBitmap = cropFace(bitmap, face.boundingBox)
+                    val faceBitmap = Nv21FaceBitmapCropper.cropToBitmap(
+                        nv21 = nv21,
+                        previewSize = previewSize,
+                        bounds = face.boundingBox.padded(
+                            scale = 0.18f,
+                            maxWidth = previewSize.width,
+                            maxHeight = previewSize.height
+                        )
+                    )
                     try {
                         val embedding = model.embed(faceBitmap)
                         val match = matcher.findBestMatch(embedding, embeddingStore.loadAll())
@@ -249,7 +255,6 @@ class MlKitFaceRecognizer(
                         )
                     } finally {
                         faceBitmap.recycle()
-                        bitmap.recycle()
                     }
                 }
                 if (!closed.get()) {
@@ -260,21 +265,6 @@ class MlKitFaceRecognizer(
                 identityStabilizer.decide(null)
                 sessionLog.record(TAG, "Face recognition frame failed: ${error.message ?: error::class.java.simpleName}")
             }
-        }
-
-        private fun bitmapFromNv21(nv21: ByteArray, previewSize: PreviewSize): Bitmap {
-            val pixels = Yuv420SpImageEncoder.convertNv21ToArgbPixelsForFallback(nv21, previewSize)
-            return Bitmap.createBitmap(
-                pixels,
-                previewSize.width,
-                previewSize.height,
-                Bitmap.Config.ARGB_8888
-            )
-        }
-
-        private fun cropFace(source: Bitmap, bounds: Rect): Bitmap {
-            val padded = bounds.padded(scale = 0.18f, maxWidth = source.width, maxHeight = source.height)
-            return Bitmap.createBitmap(source, padded.left, padded.top, padded.width(), padded.height())
         }
 
         private fun Face.toFaceBox(accessStatus: FaceAccessStatus?): FaceBoundingBox {

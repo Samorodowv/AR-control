@@ -11,6 +11,7 @@
     <string name="record_video">Запись видео</string>
     <string name="object_detection">Объекты</string>
     <string name="face_recognition">Лица</string>
+    <string name="clear_faces">Очистить лица</string>
     <string name="transparent_hud">Transparent HUD</string>
     <string name="gemma_subtitles">Субтитры Gemma</string>
     <string name="download_gemma_model">Скачать модель Gemma</string>

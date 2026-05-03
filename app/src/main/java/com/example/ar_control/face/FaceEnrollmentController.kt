@@ -3,7 +3,10 @@ package com.example.ar_control.face
 class FaceEnrollmentController(
     private val embeddingStore: FaceEmbeddingStore
 ) {
-    fun rememberCurrentFace(state: FaceRecognitionState): FaceEnrollmentResult {
+    fun rememberCurrentFace(
+        state: FaceRecognitionState,
+        accessStatus: FaceAccessStatus
+    ): FaceEnrollmentResult {
         if (!state.modelReady) {
             return FaceEnrollmentResult.ModelMissing
         }
@@ -14,7 +17,13 @@ class FaceEnrollmentController(
         if (state.faceCount != 1) {
             return FaceEnrollmentResult.NoFace
         }
-        return FaceEnrollmentResult.Remembered(embeddingStore.remember(embedding))
+        return FaceEnrollmentResult.Remembered(
+            embeddingStore.remember(
+                embedding = embedding,
+                accessStatus = accessStatus,
+                existingFaceId = state.matchedFace?.id
+            )
+        )
     }
 }
 

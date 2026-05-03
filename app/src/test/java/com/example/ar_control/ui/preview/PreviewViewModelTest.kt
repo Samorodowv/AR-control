@@ -14,14 +14,17 @@ import com.example.ar_control.detection.DetectionSessionStats
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.InMemorySessionLog
+import com.example.ar_control.face.FaceAccessStatus
 import com.example.ar_control.face.FaceBoundingBox
 import com.example.ar_control.face.FaceEmbedding
+import com.example.ar_control.face.FaceEmbeddingStore
 import com.example.ar_control.face.FaceEnrollmentResult
 import com.example.ar_control.face.FaceRecognitionPreferences
 import com.example.ar_control.face.FaceRecognitionSession
 import com.example.ar_control.face.FaceRecognitionState
 import com.example.ar_control.face.FaceRecognitionStatus
 import com.example.ar_control.face.FaceRecognizer
+import com.example.ar_control.face.InMemoryFaceEmbeddingStore
 import com.example.ar_control.face.RememberedFace
 import com.example.ar_control.gemma.GemmaCaptionSession
 import com.example.ar_control.gemma.GemmaFrameCaptioner
@@ -916,8 +919,8 @@ class PreviewViewModelTest {
                 faceCount = 1,
                 faceBoxes = listOf(
                     FaceBoundingBox(
-                        label = "Unknown face",
-                        boundingBox = DetectionBoundingBox(10f, 20f, 110f, 180f)
+                        boundingBox = DetectionBoundingBox(10f, 20f, 110f, 180f),
+                        accessStatus = null
                     )
                 ),
                 status = FaceRecognitionStatus.UnknownFace
@@ -942,8 +945,8 @@ class PreviewViewModelTest {
         assertEquals(
             listOf(
                 FaceBoundingBox(
-                    label = "Unknown face",
-                    boundingBox = DetectionBoundingBox(10f, 20f, 110f, 180f)
+                    boundingBox = DetectionBoundingBox(10f, 20f, 110f, 180f),
+                    accessStatus = null
                 )
             ),
             viewModel.uiState.value.faceBoxes
@@ -981,14 +984,15 @@ class PreviewViewModelTest {
     }
 
     @Test
-    fun rememberCurrentFace_usesActiveFaceSessionAndShowsRememberedLabel() = runTest {
+    fun rememberCurrentFaceAsBanned_usesActiveFaceSessionAndShowsBannedStatus() = runTest {
         val cameraSource = FakeCameraSource(
             recordingStartResult = CameraSource.RecordingStartResult.Started
         )
         val rememberedFace = RememberedFace(
             id = "face-1",
             label = "Face 1",
-            embedding = FaceEmbedding(floatArrayOf(1f, 0f))
+            embedding = FaceEmbedding(floatArrayOf(1f, 0f)),
+            accessStatus = FaceAccessStatus.BANNED
         )
         val faceRecognizer = FakeFaceRecognizer(
             initialState = FaceRecognitionState(
@@ -1009,11 +1013,85 @@ class PreviewViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
         viewModel.startPreview(FakeCameraSurfaceToken)
         dispatcher.scheduler.advanceUntilIdle()
-        viewModel.rememberCurrentFace()
+        viewModel.rememberCurrentFace(FaceAccessStatus.BANNED)
         dispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(1, faceRecognizer.lastSession?.rememberCalls)
-        assertEquals("Запомнил Face 1", viewModel.uiState.value.faceRecognitionStatusText)
+        assertEquals(FaceAccessStatus.BANNED, faceRecognizer.lastSession?.lastRememberAccessStatus)
+        assertEquals("Запомнил запрещенное лицо", viewModel.uiState.value.faceRecognitionStatusText)
+    }
+
+    @Test
+    fun rememberCurrentFaceAsApproved_usesActiveFaceSessionAndShowsApprovedStatus() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val rememberedFace = RememberedFace(
+            id = "face-1",
+            label = "Face 1",
+            embedding = FaceEmbedding(floatArrayOf(1f, 0f)),
+            accessStatus = FaceAccessStatus.APPROVED
+        )
+        val faceRecognizer = FakeFaceRecognizer(
+            initialState = FaceRecognitionState(
+                modelReady = true,
+                faceCount = 1,
+                bestFaceEmbedding = rememberedFace.embedding,
+                status = FaceRecognitionStatus.UnknownFace
+            ),
+            enrollmentResult = FaceEnrollmentResult.Remembered(rememberedFace)
+        )
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            faceRecognizer = faceRecognizer,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.rememberCurrentFace(FaceAccessStatus.APPROVED)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, faceRecognizer.lastSession?.rememberCalls)
+        assertEquals(FaceAccessStatus.APPROVED, faceRecognizer.lastSession?.lastRememberAccessStatus)
+        assertEquals("Запомнил разрешенное лицо", viewModel.uiState.value.faceRecognitionStatusText)
+    }
+
+    @Test
+    fun clearRememberedFaces_clearsStoreAndResetsFaceBoxAccessStatus() = runTest {
+        val faceEmbeddingStore = InMemoryFaceEmbeddingStore()
+        faceEmbeddingStore.remember(FaceEmbedding(floatArrayOf(1f, 0f)), FaceAccessStatus.BANNED)
+        val faceBox = FaceBoundingBox(
+            boundingBox = DetectionBoundingBox(10f, 20f, 110f, 180f),
+            accessStatus = FaceAccessStatus.BANNED
+        )
+        val faceRecognizer = FakeFaceRecognizer(
+            initialState = FaceRecognitionState(
+                modelReady = true,
+                faceCount = 1,
+                faceBoxes = listOf(faceBox),
+                status = FaceRecognitionStatus.RememberedFace
+            )
+        )
+        val viewModel = buildViewModel(
+            cameraSource = FakeCameraSource(
+                recordingStartResult = CameraSource.RecordingStartResult.Started
+            ),
+            faceEmbeddingStore = faceEmbeddingStore,
+            faceRecognizer = faceRecognizer,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.clearRememberedFaces()
+
+        assertEquals(emptyList<RememberedFace>(), faceEmbeddingStore.loadAll())
+        assertEquals(listOf(faceBox.copy(accessStatus = null)), viewModel.uiState.value.faceBoxes)
     }
 
     @Test
@@ -1609,6 +1687,7 @@ private fun buildViewModel(
     recordingPreferences: RecordingPreferences = FakeRecordingPreferences(),
     detectionPreferences: DetectionPreferences = FakeDetectionPreferences(),
     faceRecognitionPreferences: FaceRecognitionPreferences = FakeFaceRecognitionPreferences(),
+    faceEmbeddingStore: FaceEmbeddingStore = InMemoryFaceEmbeddingStore(),
     objectDetector: ObjectDetector = FakeObjectDetector(),
     detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     gemmaSubtitlePreferences: GemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(),
@@ -1632,6 +1711,7 @@ private fun buildViewModel(
         recordingPreferences = recordingPreferences,
         detectionPreferences = detectionPreferences,
         faceRecognitionPreferences = faceRecognitionPreferences,
+        faceEmbeddingStore = faceEmbeddingStore,
         objectDetector = objectDetector,
         detectionAnnotationSink = detectionAnnotationSink,
         gemmaSubtitlePreferences = gemmaSubtitlePreferences,
@@ -1987,6 +2067,8 @@ private class FakeFaceRecognitionSession(
         private set
     var rememberCalls = 0
         private set
+    var lastRememberAccessStatus: FaceAccessStatus? = null
+        private set
 
     override val inputTarget: RecordingInputTarget.FrameCallbackTarget =
         RecordingInputTarget.FrameCallbackTarget(
@@ -1994,8 +2076,9 @@ private class FakeFaceRecognitionSession(
             frameConsumer = VideoFrameConsumer { _, _ -> }
         )
 
-    override fun rememberCurrentFace(): FaceEnrollmentResult {
+    override fun rememberCurrentFace(accessStatus: FaceAccessStatus): FaceEnrollmentResult {
         rememberCalls += 1
+        lastRememberAccessStatus = accessStatus
         if (enrollmentResult is FaceEnrollmentResult.Remembered) {
             onStateUpdated(
                 currentState.copy(

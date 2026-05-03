@@ -18,6 +18,7 @@ import com.example.ar_control.detection.SharedPreferencesDetectionPreferences
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.PersistentSessionLog
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.face.FaceEmbeddingStore
 import com.example.ar_control.face.FaceRecognitionPreferences
 import com.example.ar_control.face.FaceRecognizer
 import com.example.ar_control.face.MlKitFaceRecognizer
@@ -173,10 +174,14 @@ class DefaultAppContainer(
         )
     }
 
+    private val faceEmbeddingStore: FaceEmbeddingStore by lazy {
+        SharedPreferencesFaceEmbeddingStore(appContext)
+    }
+
     private val faceRecognizer: FaceRecognizer by lazy {
         MlKitFaceRecognizer(
             context = appContext,
-            embeddingStore = SharedPreferencesFaceEmbeddingStore(appContext),
+            embeddingStore = faceEmbeddingStore,
             sessionLog = sessionLog
         )
     }
@@ -224,6 +229,7 @@ class DefaultAppContainer(
             recordingPreferences = recordingPreferences,
             detectionPreferences = detectionPreferences,
             faceRecognitionPreferences = faceRecognitionPreferences,
+            faceEmbeddingStore = faceEmbeddingStore,
             objectDetector = objectDetector,
             detectionAnnotationSink = detectionAnnotationSink,
             gemmaSubtitlePreferences = gemmaSubtitlePreferences,

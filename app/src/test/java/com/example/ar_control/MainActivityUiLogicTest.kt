@@ -127,6 +127,18 @@ class MainActivityUiLogicTest {
     }
 
     @Test
+    fun mainActivityLayout_containsClearFacesButton() {
+        val themedContext = ContextThemeWrapper(context, R.style.Theme_AR_Control)
+        val view = LayoutInflater.from(themedContext).inflate(
+            R.layout.activity_main,
+            FrameLayout(themedContext),
+            false
+        )
+
+        assertNotNull(view.findViewById<View>(R.id.clearFacesButton))
+    }
+
+    @Test
     fun mainLayout_containsFaceRecognitionStatusOverlay() {
         val themedContext = ContextThemeWrapper(context, R.style.Theme_AR_Control)
         val view = LayoutInflater.from(themedContext).inflate(

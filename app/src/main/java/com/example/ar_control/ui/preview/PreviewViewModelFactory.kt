@@ -7,8 +7,10 @@ import com.example.ar_control.camera.CameraSourcePreferences
 import com.example.ar_control.detection.DetectionPreferences
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.face.FaceEmbeddingStore
 import com.example.ar_control.face.FaceRecognitionPreferences
 import com.example.ar_control.face.FaceRecognizer
+import com.example.ar_control.face.InMemoryFaceEmbeddingStore
 import com.example.ar_control.face.NoOpFaceRecognitionPreferences
 import com.example.ar_control.face.NoOpFaceRecognizer
 import com.example.ar_control.gemma.GemmaFrameCaptioner
@@ -35,6 +37,7 @@ class PreviewViewModelFactory(
     private val recordingPreferences: RecordingPreferences,
     private val detectionPreferences: DetectionPreferences,
     private val faceRecognitionPreferences: FaceRecognitionPreferences = NoOpFaceRecognitionPreferences,
+    private val faceEmbeddingStore: FaceEmbeddingStore = InMemoryFaceEmbeddingStore(),
     private val objectDetector: ObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
@@ -62,6 +65,7 @@ class PreviewViewModelFactory(
             recordingPreferences = recordingPreferences,
             detectionPreferences = detectionPreferences,
             faceRecognitionPreferences = faceRecognitionPreferences,
+            faceEmbeddingStore = faceEmbeddingStore,
             objectDetector = objectDetector,
             detectionAnnotationSink = detectionAnnotationSink,
             gemmaSubtitlePreferences = gemmaSubtitlePreferences,

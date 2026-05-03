@@ -10,8 +10,18 @@ class FaceEmbeddingMatcherTest {
     fun findBestMatch_returnsClosestEmbeddingAboveThreshold() {
         val matcher = FaceEmbeddingMatcher(matchThreshold = 0.75f)
         val rememberedFaces = listOf(
-            RememberedFace(id = "face-1", label = "Face 1", embedding = FaceEmbedding(floatArrayOf(1f, 0f))),
-            RememberedFace(id = "face-2", label = "Face 2", embedding = FaceEmbedding(floatArrayOf(0f, 1f)))
+            RememberedFace(
+                id = "face-1",
+                label = "Face 1",
+                embedding = FaceEmbedding(floatArrayOf(1f, 0f)),
+                accessStatus = FaceAccessStatus.BANNED
+            ),
+            RememberedFace(
+                id = "face-2",
+                label = "Face 2",
+                embedding = FaceEmbedding(floatArrayOf(0f, 1f)),
+                accessStatus = FaceAccessStatus.APPROVED
+            )
         )
 
         val match = matcher.findBestMatch(
@@ -28,7 +38,12 @@ class FaceEmbeddingMatcherTest {
     fun findBestMatch_returnsNullWhenSimilarityIsBelowThreshold() {
         val matcher = FaceEmbeddingMatcher(matchThreshold = 0.95f)
         val rememberedFaces = listOf(
-            RememberedFace(id = "face-1", label = "Face 1", embedding = FaceEmbedding(floatArrayOf(1f, 0f)))
+            RememberedFace(
+                id = "face-1",
+                label = "Face 1",
+                embedding = FaceEmbedding(floatArrayOf(1f, 0f)),
+                accessStatus = FaceAccessStatus.APPROVED
+            )
         )
 
         val match = matcher.findBestMatch(

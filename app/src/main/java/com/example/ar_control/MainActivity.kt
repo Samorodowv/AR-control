@@ -39,6 +39,7 @@ import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.camera.TextureViewSurfaceToken
 import com.example.ar_control.databinding.ActivityMainBinding
 import com.example.ar_control.di.AppContainer
+import com.example.ar_control.face.FaceAccessStatus
 import com.example.ar_control.performance.FramesPerSecondTracker
 import com.example.ar_control.recording.RecordedClip
 import com.example.ar_control.recording.RecordingStatus
@@ -74,6 +75,7 @@ class MainActivity : ComponentActivity() {
     private val previewFpsTracker = FramesPerSecondTracker()
     private var lastPreviewFps: Float? = null
     private val volumeUpDoublePressDetector = VolumeUpDoublePressDetector()
+    private val volumeDownDoublePressDetector = VolumeUpDoublePressDetector()
     private val keyHandler = Handler(Looper.getMainLooper())
     private val pendingVolumeUpSinglePressRunnable = Runnable {
         if (
@@ -81,6 +83,14 @@ class MainActivity : ComponentActivity() {
             VolumeUpDoublePressDetector.Action.SinglePress
         ) {
             previewViewModel.zoomInPreview()
+        }
+    }
+    private val pendingVolumeDownSinglePressRunnable = Runnable {
+        if (
+            volumeDownDoublePressDetector.consumePendingSinglePress(SystemClock.uptimeMillis()) ==
+            VolumeUpDoublePressDetector.Action.SinglePress
+        ) {
+            previewViewModel.zoomOutPreview()
         }
     }
     private lateinit var previewBackPressedCallback: OnBackPressedCallback
@@ -219,6 +229,10 @@ class MainActivity : ComponentActivity() {
         binding.shareLogsButton.setOnClickListener {
             shareLogs()
         }
+        binding.clearFacesButton.setOnClickListener {
+            appContainer.sessionLog.record("MainActivity", "Clear faces tapped")
+            previewViewModel.clearRememberedFaces()
+        }
         binding.recordVideoCheckbox.setOnCheckedChangeListener(recordVideoCheckedChangeListener)
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
         binding.faceRecognitionCheckbox.setOnCheckedChangeListener(faceRecognitionCheckedChangeListener)
@@ -329,6 +343,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onDestroy() {
         keyHandler.removeCallbacks(pendingVolumeUpSinglePressRunnable)
+        keyHandler.removeCallbacks(pendingVolumeDownSinglePressRunnable)
         super.onDestroy()
     }
 
@@ -340,7 +355,6 @@ class MainActivity : ComponentActivity() {
                 }
 
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
-                    previewViewModel.zoomOutPreview()
                     return true
                 }
             }
@@ -357,6 +371,7 @@ class MainActivity : ComponentActivity() {
                 }
 
                 KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    handleVolumeDownReleased()
                     return true
                 }
             }
@@ -368,7 +383,7 @@ class MainActivity : ComponentActivity() {
         keyHandler.removeCallbacks(pendingVolumeUpSinglePressRunnable)
         when (volumeUpDoublePressDetector.onPress(SystemClock.uptimeMillis())) {
             VolumeUpDoublePressDetector.Action.DoublePress -> {
-                previewViewModel.rememberCurrentFace()
+                previewViewModel.rememberCurrentFace(FaceAccessStatus.BANNED)
             }
 
             VolumeUpDoublePressDetector.Action.SinglePress -> {
@@ -382,6 +397,30 @@ class MainActivity : ComponentActivity() {
             null -> {
                 keyHandler.postDelayed(
                     pendingVolumeUpSinglePressRunnable,
+                    VolumeUpDoublePressDetector.DEFAULT_DOUBLE_PRESS_WINDOW_MILLIS
+                )
+            }
+        }
+    }
+
+    private fun handleVolumeDownReleased() {
+        keyHandler.removeCallbacks(pendingVolumeDownSinglePressRunnable)
+        when (volumeDownDoublePressDetector.onPress(SystemClock.uptimeMillis())) {
+            VolumeUpDoublePressDetector.Action.DoublePress -> {
+                previewViewModel.rememberCurrentFace(FaceAccessStatus.APPROVED)
+            }
+
+            VolumeUpDoublePressDetector.Action.SinglePress -> {
+                previewViewModel.zoomOutPreview()
+                keyHandler.postDelayed(
+                    pendingVolumeDownSinglePressRunnable,
+                    VolumeUpDoublePressDetector.DEFAULT_DOUBLE_PRESS_WINDOW_MILLIS
+                )
+            }
+
+            null -> {
+                keyHandler.postDelayed(
+                    pendingVolumeDownSinglePressRunnable,
                     VolumeUpDoublePressDetector.DEFAULT_DOUBLE_PRESS_WINDOW_MILLIS
                 )
             }
@@ -408,6 +447,7 @@ class MainActivity : ComponentActivity() {
         binding.recordVideoCheckbox.isEnabled = uiState.canChangeRecordVideo
         binding.objectDetectionCheckbox.isEnabled = uiState.canChangeObjectDetection
         binding.faceRecognitionCheckbox.isEnabled = uiState.canChangeFaceRecognition
+        binding.clearFacesButton.isEnabled = uiState.canChangeFaceRecognition
         binding.transparentHudCheckbox.isEnabled = uiState.canChangeTransparentHud
         binding.gemmaSubtitlesCheckbox.isEnabled = uiState.canChangeGemmaSubtitles
         binding.gemmaModelStatusText.text = uiState.gemmaModelStatusMessage(this)

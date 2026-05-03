@@ -23,13 +23,31 @@ class SharedPreferencesFaceEmbeddingStore(
         }
     }
 
-    override fun remember(embedding: FaceEmbedding): RememberedFace {
+    override fun remember(
+        embedding: FaceEmbedding,
+        accessStatus: FaceAccessStatus,
+        existingFaceId: String?
+    ): RememberedFace {
         val rememberedFaces = loadAll()
+        val existingIndex = rememberedFaces.indexOfFirst { face -> face.id == existingFaceId }
+        if (existingIndex >= 0) {
+            val updatedFace = rememberedFaces[existingIndex].copy(
+                embedding = embedding,
+                accessStatus = accessStatus
+            )
+            replaceAll(
+                rememberedFaces.toMutableList().also { faces ->
+                    faces[existingIndex] = updatedFace
+                }
+            )
+            return updatedFace
+        }
         val nextIndex = rememberedFaces.size + 1
         val face = RememberedFace(
             id = "face-$nextIndex",
             label = "Face $nextIndex",
-            embedding = embedding
+            embedding = embedding,
+            accessStatus = accessStatus
         )
         replaceAll(rememberedFaces + face)
         return face
@@ -49,6 +67,7 @@ class SharedPreferencesFaceEmbeddingStore(
         return JSONObject()
             .put("id", id)
             .put("label", label)
+            .put("accessStatus", accessStatus.name)
             .put("embedding", JSONArray().also { values ->
                 for (value in embedding.values) {
                     values.put(value.toDouble())
@@ -63,8 +82,15 @@ class SharedPreferencesFaceEmbeddingStore(
             label = getString("label"),
             embedding = FaceEmbedding(FloatArray(values.length()) { index ->
                 values.getDouble(index).toFloat()
-            })
+            }),
+            accessStatus = optString("accessStatus", FaceAccessStatus.APPROVED.name)
+                .toFaceAccessStatus()
         )
+    }
+
+    private fun String.toFaceAccessStatus(): FaceAccessStatus {
+        return runCatching { FaceAccessStatus.valueOf(this) }
+            .getOrDefault(FaceAccessStatus.APPROVED)
     }
 
     private companion object {

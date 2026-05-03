@@ -12,8 +12,8 @@ data class FaceRecognitionState(
 )
 
 data class FaceBoundingBox(
-    val label: String,
-    val boundingBox: DetectionBoundingBox
+    val boundingBox: DetectionBoundingBox,
+    val accessStatus: FaceAccessStatus? = null
 )
 
 enum class FaceRecognitionStatus {

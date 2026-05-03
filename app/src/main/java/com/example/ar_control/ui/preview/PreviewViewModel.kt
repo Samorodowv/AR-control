@@ -11,7 +11,10 @@ import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.face.FaceAccessStatus
+import com.example.ar_control.face.FaceEmbeddingStore
 import com.example.ar_control.face.FaceEnrollmentResult
+import com.example.ar_control.face.InMemoryFaceEmbeddingStore
 import com.example.ar_control.face.FaceRecognitionSession
 import com.example.ar_control.face.FaceRecognitionState
 import com.example.ar_control.face.FaceRecognitionStatus
@@ -67,6 +70,7 @@ class PreviewViewModel(
         override fun setObjectDetectionEnabled(enabled: Boolean) = Unit
     },
     private val faceRecognitionPreferences: FaceRecognitionPreferences = NoOpFaceRecognitionPreferences,
+    private val faceEmbeddingStore: FaceEmbeddingStore = InMemoryFaceEmbeddingStore(),
     private val objectDetector: ObjectDetector = NoOpObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
@@ -458,7 +462,7 @@ class PreviewViewModel(
         updatePreviewZoom(delta = -zoomStep, logLabel = "preview_zoom_out")
     }
 
-    fun rememberCurrentFace() {
+    fun rememberCurrentFace(accessStatus: FaceAccessStatus) {
         if (!_uiState.value.faceRecognitionEnabled) {
             sessionLog.record("PreviewViewModel", "Face enrollment ignored because face recognition is disabled")
             return
@@ -470,13 +474,28 @@ class PreviewViewModel(
             ))
             return
         }
-        val result = session.rememberCurrentFace()
+        val result = session.rememberCurrentFace(accessStatus)
         sessionLog.record("PreviewViewModel", "Face enrollment requested: ${result.toLogLabel()}")
         viewModelScope.launch {
             _uiState.value = applyRecoveryState(_uiState.value.copy(
                 faceRecognitionStatusText = result.toStatusText()
             ))
         }
+    }
+
+    fun clearRememberedFaces() {
+        if (recoverySnapshot.isSafeMode) {
+            sessionLog.record("PreviewViewModel", "Clear remembered faces ignored because safe mode is active")
+            return
+        }
+        faceEmbeddingStore.clear()
+        sessionLog.record("PreviewViewModel", "Remembered faces cleared")
+        _uiState.value = applyRecoveryState(_uiState.value.copy(
+            faceRecognitionStatusText = null,
+            faceBoxes = _uiState.value.faceBoxes.map { faceBox ->
+                faceBox.copy(accessStatus = null)
+            }
+        ))
     }
 
     fun onPreviewStartBlocked(reason: String) {
@@ -1321,8 +1340,11 @@ class PreviewViewModel(
             FaceRecognitionStatus.NoFace -> FACE_RECOGNITION_NO_FACE
             FaceRecognitionStatus.MultipleFaces -> FACE_RECOGNITION_MULTIPLE_FACES
             FaceRecognitionStatus.UnknownFace -> FACE_RECOGNITION_UNKNOWN_FACE
-            FaceRecognitionStatus.RememberedFace ->
-                matchedFace?.label?.let { label -> "Лицо: $label" } ?: FACE_RECOGNITION_UNKNOWN_FACE
+            FaceRecognitionStatus.RememberedFace -> when (matchedFace?.accessStatus) {
+                FaceAccessStatus.BANNED -> FACE_RECOGNITION_BANNED_FACE
+                FaceAccessStatus.APPROVED -> FACE_RECOGNITION_APPROVED_FACE
+                null -> FACE_RECOGNITION_UNKNOWN_FACE
+            }
         }
     }
 
@@ -1331,7 +1353,10 @@ class PreviewViewModel(
             FaceEnrollmentResult.ModelMissing -> FACE_RECOGNITION_MODEL_MISSING
             FaceEnrollmentResult.NoFace -> FACE_RECOGNITION_NO_FACE_TO_REMEMBER
             FaceEnrollmentResult.MultipleFaces -> FACE_RECOGNITION_MULTIPLE_FACES_TO_REMEMBER
-            is FaceEnrollmentResult.Remembered -> "Запомнил ${face.label}"
+            is FaceEnrollmentResult.Remembered -> when (face.accessStatus) {
+                FaceAccessStatus.BANNED -> FACE_RECOGNITION_REMEMBERED_BANNED
+                FaceAccessStatus.APPROVED -> FACE_RECOGNITION_REMEMBERED_APPROVED
+            }
         }
     }
 
@@ -1340,7 +1365,7 @@ class PreviewViewModel(
             FaceEnrollmentResult.ModelMissing -> "model_missing"
             FaceEnrollmentResult.NoFace -> "no_face"
             FaceEnrollmentResult.MultipleFaces -> "multiple_faces"
-            is FaceEnrollmentResult.Remembered -> "remembered:${face.id}"
+            is FaceEnrollmentResult.Remembered -> "remembered:${face.id}:${face.accessStatus.name.lowercase()}"
         }
     }
 
@@ -1352,9 +1377,13 @@ class PreviewViewModel(
         const val FACE_RECOGNITION_NO_FACE = "Лица: наведите камеру на лицо"
         const val FACE_RECOGNITION_MULTIPLE_FACES = "Лица: несколько лиц"
         const val FACE_RECOGNITION_UNKNOWN_FACE = "Лицо: неизвестное"
+        const val FACE_RECOGNITION_BANNED_FACE = "Лицо: запрещено"
+        const val FACE_RECOGNITION_APPROVED_FACE = "Лицо: разрешено"
         const val FACE_RECOGNITION_PREVIEW_NOT_RUNNING = "Лица: просмотр не запущен"
         const val FACE_RECOGNITION_NO_FACE_TO_REMEMBER = "Лицо не найдено"
         const val FACE_RECOGNITION_MULTIPLE_FACES_TO_REMEMBER = "Оставьте в кадре одно лицо"
+        const val FACE_RECOGNITION_REMEMBERED_BANNED = "Запомнил запрещенное лицо"
+        const val FACE_RECOGNITION_REMEMBERED_APPROVED = "Запомнил разрешенное лицо"
     }
 }
 

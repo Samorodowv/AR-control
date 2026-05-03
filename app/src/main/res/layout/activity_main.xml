@@ -156,6 +156,13 @@
                     android:layout_marginTop="@dimen/control_item_spacing"
                     android:text="@string/face_recognition" />
 
+                <Button
+                    android:id="@+id/clearFacesButton"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/control_item_spacing"
+                    android:text="@string/clear_faces" />
+
                 <com.google.android.material.checkbox.MaterialCheckBox
                     android:id="@+id/transparentHudCheckbox"
                     android:layout_width="match_parent"

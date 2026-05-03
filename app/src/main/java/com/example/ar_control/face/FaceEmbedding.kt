@@ -17,6 +17,12 @@ class FaceEmbedding(values: FloatArray) {
 data class RememberedFace(
     val id: String,
     val label: String,
-    val embedding: FaceEmbedding
+    val embedding: FaceEmbedding,
+    val accessStatus: FaceAccessStatus = FaceAccessStatus.APPROVED
 )
+
+enum class FaceAccessStatus {
+    BANNED,
+    APPROVED
+}
 

@@ -99,11 +99,14 @@ class MlKitFaceRecognizer(
             onStateUpdated(currentState)
         }
 
-        override fun rememberCurrentFace(): FaceEnrollmentResult {
-            val result = enrollmentController.rememberCurrentFace(currentState)
+        override fun rememberCurrentFace(accessStatus: FaceAccessStatus): FaceEnrollmentResult {
+            val result = enrollmentController.rememberCurrentFace(currentState, accessStatus)
             if (result is FaceEnrollmentResult.Remembered) {
                 currentState = currentState.copy(
                     matchedFace = result.face,
+                    faceBoxes = currentState.faceBoxes.map { box ->
+                        box.copy(accessStatus = result.face.accessStatus)
+                    },
                     status = FaceRecognitionStatus.RememberedFace
                 )
                 onStateUpdated(currentState)
@@ -190,7 +193,7 @@ class MlKitFaceRecognizer(
                     faces.size > 1 -> FaceRecognitionState(
                         modelReady = true,
                         faceCount = faces.size,
-                        faceBoxes = faces.map { face -> face.toFaceBox(MULTIPLE_FACE_LABEL) },
+                        faceBoxes = faces.map { face -> face.toFaceBox(accessStatus = null) },
                         status = FaceRecognitionStatus.MultipleFaces
                     )
 
@@ -201,13 +204,14 @@ class MlKitFaceRecognizer(
                         try {
                             val embedding = model.embed(faceBitmap)
                             val match = matcher.findBestMatch(embedding, embeddingStore.loadAll())
-                            val label = match?.face?.label ?: UNKNOWN_FACE_LABEL
                             FaceRecognitionState(
                                 modelReady = true,
                                 faceCount = 1,
                                 bestFaceEmbedding = embedding,
                                 matchedFace = match?.face,
-                                faceBoxes = listOf(face.toFaceBox(label)),
+                                faceBoxes = listOf(
+                                    face.toFaceBox(accessStatus = match?.face?.accessStatus)
+                                ),
                                 status = if (match == null) {
                                     FaceRecognitionStatus.UnknownFace
                                 } else {
@@ -244,16 +248,16 @@ class MlKitFaceRecognizer(
             return Bitmap.createBitmap(source, padded.left, padded.top, padded.width(), padded.height())
         }
 
-        private fun Face.toFaceBox(label: String): FaceBoundingBox {
+        private fun Face.toFaceBox(accessStatus: FaceAccessStatus?): FaceBoundingBox {
             val bounds = boundingBox
             return FaceBoundingBox(
-                label = label,
                 boundingBox = DetectionBoundingBox(
                     left = bounds.left.toFloat(),
                     top = bounds.top.toFloat(),
                     right = bounds.right.toFloat(),
                     bottom = bounds.bottom.toFloat()
-                )
+                ),
+                accessStatus = accessStatus
             )
         }
 
@@ -286,8 +290,8 @@ class MlKitFaceRecognizer(
                 frameConsumer = VideoFrameConsumer { _, _ -> }
             )
 
-        override fun rememberCurrentFace(): FaceEnrollmentResult {
-            return enrollmentController.rememberCurrentFace(currentState)
+        override fun rememberCurrentFace(accessStatus: FaceAccessStatus): FaceEnrollmentResult {
+            return enrollmentController.rememberCurrentFace(currentState, accessStatus)
         }
 
         override fun close() = Unit
@@ -297,7 +301,5 @@ class MlKitFaceRecognizer(
         const val TAG = "MlKitFaceRecognizer"
         const val WORKER_THREAD_NAME = "face-recognition"
         const val MIN_FRAME_INTERVAL_NANOS = 250_000_000L
-        const val UNKNOWN_FACE_LABEL = "Unknown face"
-        const val MULTIPLE_FACE_LABEL = "Face"
     }
 }

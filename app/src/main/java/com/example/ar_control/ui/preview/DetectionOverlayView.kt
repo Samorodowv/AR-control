@@ -12,6 +12,7 @@ import android.view.View
 import com.example.ar_control.detection.DetectedObject
 import com.example.ar_control.detection.DetectionBoundingBox
 import com.example.ar_control.detection.DetectionOverlayMapper
+import com.example.ar_control.face.FaceAccessStatus
 import com.example.ar_control.face.FaceBoundingBox
 import com.example.ar_control.preview.FitCenterLayoutCalculator
 import com.example.ar_control.preview.PreviewTransformCalculator
@@ -36,11 +37,6 @@ class DetectionOverlayView @JvmOverloads constructor(
     private val faceBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = density * 2f
-        color = Color.rgb(64, 224, 208)
-    }
-    private val faceLabelBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = Color.argb(220, 64, 224, 208)
     }
     private val labelTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -172,12 +168,10 @@ class DetectionOverlayView @JvmOverloads constructor(
         }
 
         for (face in faces) {
-            drawLabeledBox(
+            drawFaceBox(
                 canvas = canvas,
                 sourceBox = face.boundingBox,
-                label = face.label,
-                outlinePaint = faceBoxPaint,
-                backgroundPaint = faceLabelBackgroundPaint
+                accessStatus = face.accessStatus
             )
         }
 
@@ -223,6 +217,28 @@ class DetectionOverlayView @JvmOverloads constructor(
             labelRect.left + labelPadding,
             labelRect.bottom - labelPadding,
             labelTextPaint
+        )
+    }
+
+    private fun drawFaceBox(
+        canvas: Canvas,
+        sourceBox: DetectionBoundingBox,
+        accessStatus: FaceAccessStatus?
+    ) {
+        val mappedBox = DetectionOverlayMapper.mapToView(
+            sourceBox = sourceBox,
+            sourceWidth = contentWidth,
+            sourceHeight = contentHeight,
+            viewWidth = measuredWidth,
+            viewHeight = measuredHeight
+        )
+        faceBoxPaint.color = faceBoxColor(accessStatus)
+        canvas.drawRect(
+            mappedBox.left,
+            mappedBox.top,
+            mappedBox.right,
+            mappedBox.bottom,
+            faceBoxPaint
         )
     }
 
@@ -276,5 +292,13 @@ class DetectionOverlayView @JvmOverloads constructor(
 
     private fun formatFps(value: Float): String {
         return String.format(Locale.US, "%.1f", value)
+    }
+}
+
+internal fun faceBoxColor(accessStatus: FaceAccessStatus?): Int {
+    return when (accessStatus) {
+        FaceAccessStatus.BANNED -> Color.RED
+        FaceAccessStatus.APPROVED -> Color.GREEN
+        null -> Color.WHITE
     }
 }

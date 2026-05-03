@@ -17,7 +17,7 @@ interface FaceRecognitionSession : AutoCloseable {
 
     val currentState: FaceRecognitionState
 
-    fun rememberCurrentFace(): FaceEnrollmentResult
+    fun rememberCurrentFace(accessStatus: FaceAccessStatus): FaceEnrollmentResult
 
     override fun close()
 }
@@ -42,8 +42,8 @@ class NoOpFaceRecognizer(
 
             override val currentState: FaceRecognitionState = state
 
-            override fun rememberCurrentFace(): FaceEnrollmentResult {
-                return enrollmentController.rememberCurrentFace(currentState)
+            override fun rememberCurrentFace(accessStatus: FaceAccessStatus): FaceEnrollmentResult {
+                return enrollmentController.rememberCurrentFace(currentState, accessStatus)
             }
 
             override fun close() = Unit

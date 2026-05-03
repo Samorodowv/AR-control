@@ -87,6 +87,7 @@ class MainActivity : ComponentActivity() {
     private lateinit var recordedClipAdapter: RecordedClipAdapter
     private lateinit var recordVideoCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private lateinit var objectDetectionCheckedChangeListener: CompoundButton.OnCheckedChangeListener
+    private lateinit var faceRecognitionCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private lateinit var transparentHudCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private lateinit var gemmaSubtitlesCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private lateinit var cameraSourceCheckedChangeListener: RadioGroup.OnCheckedChangeListener
@@ -160,6 +161,14 @@ class MainActivity : ComponentActivity() {
                 )
                 previewViewModel.setObjectDetectionEnabled(isChecked)
             }
+        faceRecognitionCheckedChangeListener =
+            CompoundButton.OnCheckedChangeListener { _, isChecked ->
+                appContainer.sessionLog.record(
+                    "MainActivity",
+                    "Face recognition checkbox changed: $isChecked"
+                )
+                previewViewModel.setFaceRecognitionEnabled(isChecked)
+            }
         transparentHudCheckedChangeListener =
             CompoundButton.OnCheckedChangeListener { _, isChecked ->
                 appContainer.sessionLog.record(
@@ -212,6 +221,7 @@ class MainActivity : ComponentActivity() {
         }
         binding.recordVideoCheckbox.setOnCheckedChangeListener(recordVideoCheckedChangeListener)
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
+        binding.faceRecognitionCheckbox.setOnCheckedChangeListener(faceRecognitionCheckedChangeListener)
         binding.transparentHudCheckbox.setOnCheckedChangeListener(transparentHudCheckedChangeListener)
         binding.gemmaSubtitlesCheckbox.setOnCheckedChangeListener(gemmaSubtitlesCheckedChangeListener)
         binding.cameraSourceRadioGroup.setOnCheckedChangeListener(cameraSourceCheckedChangeListener)
@@ -389,6 +399,7 @@ class MainActivity : ComponentActivity() {
         renderCameraSourceSelector(uiState.selectedCameraSource)
         renderRecordVideoCheckbox(uiState.recordVideoEnabled)
         renderObjectDetectionCheckbox(uiState.objectDetectionEnabled)
+        renderFaceRecognitionCheckbox(uiState.faceRecognitionEnabled)
         renderTransparentHudCheckbox(uiState.transparentHudEnabled)
         renderGemmaSubtitlesCheckbox(uiState.gemmaSubtitlesEnabled)
         binding.cameraSourceRadioGroup.isEnabled = uiState.canChangeCameraSource
@@ -396,6 +407,7 @@ class MainActivity : ComponentActivity() {
         binding.androidCameraSourceRadio.isEnabled = uiState.canChangeCameraSource
         binding.recordVideoCheckbox.isEnabled = uiState.canChangeRecordVideo
         binding.objectDetectionCheckbox.isEnabled = uiState.canChangeObjectDetection
+        binding.faceRecognitionCheckbox.isEnabled = uiState.canChangeFaceRecognition
         binding.transparentHudCheckbox.isEnabled = uiState.canChangeTransparentHud
         binding.gemmaSubtitlesCheckbox.isEnabled = uiState.canChangeGemmaSubtitles
         binding.gemmaModelStatusText.text = uiState.gemmaModelStatusMessage(this)
@@ -424,6 +436,7 @@ class MainActivity : ComponentActivity() {
         binding.detectionOverlayView.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
         binding.detectionOverlayView.alpha = 1f
         binding.detectionOverlayView.setDetections(uiState.detectedObjects)
+        binding.detectionOverlayView.setFaces(uiState.faceBoxes)
         if (binding.gemmaSubtitleText.text.toString() != uiState.gemmaSubtitleText) {
             binding.gemmaSubtitleText.text = uiState.gemmaSubtitleText
         }
@@ -511,6 +524,15 @@ class MainActivity : ComponentActivity() {
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(null)
         binding.objectDetectionCheckbox.isChecked = objectDetectionEnabled
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
+    }
+
+    private fun renderFaceRecognitionCheckbox(faceRecognitionEnabled: Boolean) {
+        if (binding.faceRecognitionCheckbox.isChecked == faceRecognitionEnabled) {
+            return
+        }
+        binding.faceRecognitionCheckbox.setOnCheckedChangeListener(null)
+        binding.faceRecognitionCheckbox.isChecked = faceRecognitionEnabled
+        binding.faceRecognitionCheckbox.setOnCheckedChangeListener(faceRecognitionCheckedChangeListener)
     }
 
     private fun renderTransparentHudCheckbox(transparentHudEnabled: Boolean) {

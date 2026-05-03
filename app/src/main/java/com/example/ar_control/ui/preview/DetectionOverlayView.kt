@@ -10,7 +10,9 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
 import com.example.ar_control.detection.DetectedObject
+import com.example.ar_control.detection.DetectionBoundingBox
 import com.example.ar_control.detection.DetectionOverlayMapper
+import com.example.ar_control.face.FaceBoundingBox
 import com.example.ar_control.preview.FitCenterLayoutCalculator
 import com.example.ar_control.preview.PreviewTransformCalculator
 import java.util.Locale
@@ -30,6 +32,15 @@ class DetectionOverlayView @JvmOverloads constructor(
     private val labelBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
         color = Color.argb(220, 171, 242, 87)
+    }
+    private val faceBoxPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.STROKE
+        strokeWidth = density * 2f
+        color = Color.rgb(64, 224, 208)
+    }
+    private val faceLabelBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(220, 64, 224, 208)
     }
     private val labelTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.FILL
@@ -62,6 +73,7 @@ class DetectionOverlayView @JvmOverloads constructor(
     private var contentHeight: Int = 0
     private var zoomFactor: Float = 1.0f
     private var detections: List<DetectedObject> = emptyList()
+    private var faces: List<FaceBoundingBox> = emptyList()
     private var previewFps: Float? = null
     private var inferenceFps: Float = 0f
     private var inferenceBackendLabel: String? = null
@@ -103,6 +115,11 @@ class DetectionOverlayView @JvmOverloads constructor(
         invalidate()
     }
 
+    fun setFaces(value: List<FaceBoundingBox>) {
+        faces = value
+        invalidate()
+    }
+
     fun setHud(
         previewFps: Float?,
         inferenceFps: Float,
@@ -138,50 +155,75 @@ class DetectionOverlayView @JvmOverloads constructor(
         if (contentWidth <= 0 || contentHeight <= 0 || measuredWidth <= 0 || measuredHeight <= 0) {
             return
         }
-        val labelPadding = density * 4f
-        val labelMargin = density * 4f
-
         for (detection in detections) {
-            val mappedBox = DetectionOverlayMapper.mapToView(
-                sourceBox = detection.boundingBox,
-                sourceWidth = contentWidth,
-                sourceHeight = contentHeight,
-                viewWidth = measuredWidth,
-                viewHeight = measuredHeight
-            )
-            canvas.drawRect(
-                mappedBox.left,
-                mappedBox.top,
-                mappedBox.right,
-                mappedBox.bottom,
-                boxPaint
-            )
-
             val label = buildString {
                 append(detection.label)
                 append(' ')
                 append((detection.confidence * 100f).roundToInt())
                 append('%')
             }
-            labelTextPaint.getTextBounds(label, 0, label.length, textBounds)
-            val labelLeft = mappedBox.left.coerceAtLeast(0f)
-            val labelBottom = (mappedBox.top - labelMargin).coerceAtLeast(textBounds.height() + (labelPadding * 2f))
-            labelRect.set(
-                labelLeft,
-                labelBottom - textBounds.height() - (labelPadding * 2f),
-                (labelLeft + textBounds.width() + (labelPadding * 2f)).coerceAtMost(measuredWidth.toFloat()),
-                labelBottom
+            drawLabeledBox(
+                canvas = canvas,
+                sourceBox = detection.boundingBox,
+                label = label,
+                outlinePaint = boxPaint,
+                backgroundPaint = labelBackgroundPaint
             )
-            canvas.drawRoundRect(labelRect, density * 4f, density * 4f, labelBackgroundPaint)
-            canvas.drawText(
-                label,
-                labelRect.left + labelPadding,
-                labelRect.bottom - labelPadding,
-                labelTextPaint
+        }
+
+        for (face in faces) {
+            drawLabeledBox(
+                canvas = canvas,
+                sourceBox = face.boundingBox,
+                label = face.label,
+                outlinePaint = faceBoxPaint,
+                backgroundPaint = faceLabelBackgroundPaint
             )
         }
 
         drawHud(canvas)
+    }
+
+    private fun drawLabeledBox(
+        canvas: Canvas,
+        sourceBox: DetectionBoundingBox,
+        label: String,
+        outlinePaint: Paint,
+        backgroundPaint: Paint
+    ) {
+        val labelPadding = density * 4f
+        val labelMargin = density * 4f
+        val mappedBox = DetectionOverlayMapper.mapToView(
+            sourceBox = sourceBox,
+            sourceWidth = contentWidth,
+            sourceHeight = contentHeight,
+            viewWidth = measuredWidth,
+            viewHeight = measuredHeight
+        )
+        canvas.drawRect(
+            mappedBox.left,
+            mappedBox.top,
+            mappedBox.right,
+            mappedBox.bottom,
+            outlinePaint
+        )
+
+        labelTextPaint.getTextBounds(label, 0, label.length, textBounds)
+        val labelLeft = mappedBox.left.coerceAtLeast(0f)
+        val labelBottom = (mappedBox.top - labelMargin).coerceAtLeast(textBounds.height() + (labelPadding * 2f))
+        labelRect.set(
+            labelLeft,
+            labelBottom - textBounds.height() - (labelPadding * 2f),
+            (labelLeft + textBounds.width() + (labelPadding * 2f)).coerceAtMost(measuredWidth.toFloat()),
+            labelBottom
+        )
+        canvas.drawRoundRect(labelRect, density * 4f, density * 4f, backgroundPaint)
+        canvas.drawText(
+            label,
+            labelRect.left + labelPadding,
+            labelRect.bottom - labelPadding,
+            labelTextPaint
+        )
     }
 
     private fun applyPreviewTransform() {

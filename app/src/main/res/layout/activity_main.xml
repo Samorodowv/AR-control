@@ -150,6 +150,13 @@
                     android:text="@string/object_detection" />
 
                 <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/faceRecognitionCheckbox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/control_item_spacing"
+                    android:text="@string/face_recognition" />
+
+                <com.google.android.material.checkbox.MaterialCheckBox
                     android:id="@+id/transparentHudCheckbox"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

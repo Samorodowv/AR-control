@@ -14,8 +14,10 @@ import com.example.ar_control.detection.DetectionSessionStats
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.InMemorySessionLog
+import com.example.ar_control.face.FaceBoundingBox
 import com.example.ar_control.face.FaceEmbedding
 import com.example.ar_control.face.FaceEnrollmentResult
+import com.example.ar_control.face.FaceRecognitionPreferences
 import com.example.ar_control.face.FaceRecognitionSession
 import com.example.ar_control.face.FaceRecognitionState
 import com.example.ar_control.face.FaceRecognitionStatus
@@ -178,6 +180,7 @@ class PreviewViewModelTest {
         val viewModel = buildViewModel(
             recordingPreferences = FakeRecordingPreferences(enabled = true),
             detectionPreferences = FakeDetectionPreferences(enabled = true),
+            faceRecognitionPreferences = FakeFaceRecognitionPreferences(enabled = true),
             clipRepository = clipRepository,
             cleanupScope = cleanupScope
         )
@@ -186,6 +189,7 @@ class PreviewViewModelTest {
 
         assertTrue(viewModel.uiState.value.recordVideoEnabled)
         assertTrue(viewModel.uiState.value.objectDetectionEnabled)
+        assertTrue(viewModel.uiState.value.faceRecognitionEnabled)
         assertEquals(listOf("older", "newer"), viewModel.uiState.value.recordedClips.map { it.id })
         assertEquals(1, clipRepository.loadCalls)
         assertEquals(RecordingStatus.Idle, viewModel.uiState.value.recordingStatus)
@@ -258,6 +262,21 @@ class PreviewViewModelTest {
         assertTrue(viewModel.uiState.value.objectDetectionEnabled)
         assertTrue(detectionPreferences.isObjectDetectionEnabled())
         assertEquals(1, detectionPreferences.setCalls)
+    }
+
+    @Test
+    fun setFaceRecognitionEnabled_updatesUiStateAndPreferenceStore() = runTest {
+        val faceRecognitionPreferences = FakeFaceRecognitionPreferences(enabled = true)
+        val viewModel = buildViewModel(
+            faceRecognitionPreferences = faceRecognitionPreferences,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.setFaceRecognitionEnabled(false)
+
+        assertFalse(viewModel.uiState.value.faceRecognitionEnabled)
+        assertFalse(faceRecognitionPreferences.isFaceRecognitionEnabled())
+        assertEquals(1, faceRecognitionPreferences.setCalls)
     }
 
     @Test
@@ -452,6 +471,7 @@ class PreviewViewModelTest {
         val viewModel = buildViewModel(
             recordingPreferences = FakeRecordingPreferences(enabled = true),
             detectionPreferences = FakeDetectionPreferences(enabled = true),
+            faceRecognitionPreferences = FakeFaceRecognitionPreferences(enabled = true),
             gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
                 enabled = true,
                 modelPath = "/models/gemma.litertlm",
@@ -468,10 +488,12 @@ class PreviewViewModelTest {
         assertFalse(viewModel.uiState.value.canStartPreview)
         assertFalse(viewModel.uiState.value.recordVideoEnabled)
         assertFalse(viewModel.uiState.value.objectDetectionEnabled)
+        assertFalse(viewModel.uiState.value.faceRecognitionEnabled)
         assertFalse(viewModel.uiState.value.gemmaSubtitlesEnabled)
         assertEquals("", viewModel.uiState.value.gemmaSubtitleText)
         assertFalse(viewModel.uiState.value.canChangeRecordVideo)
         assertFalse(viewModel.uiState.value.canChangeObjectDetection)
+        assertFalse(viewModel.uiState.value.canChangeFaceRecognition)
         assertFalse(viewModel.uiState.value.canChangeGemmaSubtitles)
         assertEquals(
             "Recovered after abnormal termination during recording",
@@ -489,6 +511,7 @@ class PreviewViewModelTest {
         )
         val recordingPreferences = FakeRecordingPreferences(enabled = true)
         val detectionPreferences = FakeDetectionPreferences(enabled = true)
+        val faceRecognitionPreferences = FakeFaceRecognitionPreferences(enabled = true)
         val gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(
             enabled = true,
             modelPath = "/models/gemma.litertlm",
@@ -497,6 +520,7 @@ class PreviewViewModelTest {
         val viewModel = buildViewModel(
             recordingPreferences = recordingPreferences,
             detectionPreferences = detectionPreferences,
+            faceRecognitionPreferences = faceRecognitionPreferences,
             gemmaSubtitlePreferences = gemmaSubtitlePreferences,
             recoveryManager = recoveryManager,
             cleanupScope = cleanupScope
@@ -511,10 +535,12 @@ class PreviewViewModelTest {
         assertFalse(viewModel.uiState.value.canStartPreview)
         assertTrue(viewModel.uiState.value.recordVideoEnabled)
         assertTrue(viewModel.uiState.value.objectDetectionEnabled)
+        assertTrue(viewModel.uiState.value.faceRecognitionEnabled)
         assertTrue(viewModel.uiState.value.gemmaSubtitlesEnabled)
         assertEquals("Gemma subtitles", viewModel.uiState.value.gemmaModelDisplayName)
         assertTrue(viewModel.uiState.value.canChangeRecordVideo)
         assertTrue(viewModel.uiState.value.canChangeObjectDetection)
+        assertTrue(viewModel.uiState.value.canChangeFaceRecognition)
         assertTrue(viewModel.uiState.value.canChangeGemmaSubtitles)
         assertEquals(1, recoveryManager.clearSafeModeCalls)
     }
@@ -888,6 +914,12 @@ class PreviewViewModelTest {
             initialState = FaceRecognitionState(
                 modelReady = true,
                 faceCount = 1,
+                faceBoxes = listOf(
+                    FaceBoundingBox(
+                        label = "Unknown face",
+                        boundingBox = DetectionBoundingBox(10f, 20f, 110f, 180f)
+                    )
+                ),
                 status = FaceRecognitionStatus.UnknownFace
             )
         )
@@ -907,6 +939,45 @@ class PreviewViewModelTest {
         assertEquals(1, cameraSource.startRecordingCalls)
         assertTrue(cameraSource.lastRecordingTarget is RecordingInputTarget.FrameCallbackTarget)
         assertEquals("Лицо: неизвестное", viewModel.uiState.value.faceRecognitionStatusText)
+        assertEquals(
+            listOf(
+                FaceBoundingBox(
+                    label = "Unknown face",
+                    boundingBox = DetectionBoundingBox(10f, 20f, 110f, 180f)
+                )
+            ),
+            viewModel.uiState.value.faceBoxes
+        )
+    }
+
+    @Test
+    fun startPreview_withFaceRecognitionDisabled_doesNotStartFaceRecognition() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val faceRecognizer = FakeFaceRecognizer(
+            initialState = FaceRecognitionState(
+                modelReady = true,
+                faceCount = 1,
+                status = FaceRecognitionStatus.UnknownFace
+            )
+        )
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            faceRecognitionPreferences = FakeFaceRecognitionPreferences(enabled = false),
+            faceRecognizer = faceRecognizer,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(0, faceRecognizer.startCalls)
+        assertEquals(0, cameraSource.startRecordingCalls)
+        assertEquals(null, viewModel.uiState.value.faceRecognitionStatusText)
+        assertTrue(viewModel.uiState.value.faceBoxes.isEmpty())
     }
 
     @Test
@@ -972,6 +1043,7 @@ class PreviewViewModelTest {
 
         assertTrue(faceRecognizer.lastSession?.closed == true)
         assertEquals(null, viewModel.uiState.value.faceRecognitionStatusText)
+        assertTrue(viewModel.uiState.value.faceBoxes.isEmpty())
     }
 
     @Test
@@ -1536,6 +1608,7 @@ private fun buildViewModel(
     cameraSourcePreferences: CameraSourcePreferences = FakeCameraSourcePreferences(),
     recordingPreferences: RecordingPreferences = FakeRecordingPreferences(),
     detectionPreferences: DetectionPreferences = FakeDetectionPreferences(),
+    faceRecognitionPreferences: FaceRecognitionPreferences = FakeFaceRecognitionPreferences(),
     objectDetector: ObjectDetector = FakeObjectDetector(),
     detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     gemmaSubtitlePreferences: GemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(),
@@ -1558,6 +1631,7 @@ private fun buildViewModel(
         cameraSourcePreferences = cameraSourcePreferences,
         recordingPreferences = recordingPreferences,
         detectionPreferences = detectionPreferences,
+        faceRecognitionPreferences = faceRecognitionPreferences,
         objectDetector = objectDetector,
         detectionAnnotationSink = detectionAnnotationSink,
         gemmaSubtitlePreferences = gemmaSubtitlePreferences,
@@ -1715,6 +1789,19 @@ private class FakeDetectionPreferences(
     override fun isObjectDetectionEnabled(): Boolean = enabled
 
     override fun setObjectDetectionEnabled(enabled: Boolean) {
+        this.enabled = enabled
+        setCalls += 1
+    }
+}
+
+private class FakeFaceRecognitionPreferences(
+    private var enabled: Boolean = true
+) : FaceRecognitionPreferences {
+    var setCalls = 0
+
+    override fun isFaceRecognitionEnabled(): Boolean = enabled
+
+    override fun setFaceRecognitionEnabled(enabled: Boolean) {
         this.enabled = enabled
         setCalls += 1
     }

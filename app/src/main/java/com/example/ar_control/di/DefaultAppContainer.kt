@@ -18,8 +18,10 @@ import com.example.ar_control.detection.SharedPreferencesDetectionPreferences
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.PersistentSessionLog
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.face.FaceRecognitionPreferences
 import com.example.ar_control.face.FaceRecognizer
 import com.example.ar_control.face.MlKitFaceRecognizer
+import com.example.ar_control.face.SharedPreferencesFaceRecognitionPreferences
 import com.example.ar_control.face.SharedPreferencesFaceEmbeddingStore
 import com.example.ar_control.gemma.GemmaFrameCaptioner
 import com.example.ar_control.gemma.GemmaModelDownloadScheduler
@@ -142,6 +144,10 @@ class DefaultAppContainer(
         SharedPreferencesDetectionPreferences(appContext)
     }
 
+    private val faceRecognitionPreferences: FaceRecognitionPreferences by lazy {
+        SharedPreferencesFaceRecognitionPreferences(appContext)
+    }
+
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences by lazy {
         SharedPreferencesGemmaSubtitlePreferences(appContext)
     }
@@ -217,6 +223,7 @@ class DefaultAppContainer(
             cameraSourcePreferences = cameraSourcePreferences,
             recordingPreferences = recordingPreferences,
             detectionPreferences = detectionPreferences,
+            faceRecognitionPreferences = faceRecognitionPreferences,
             objectDetector = objectDetector,
             detectionAnnotationSink = detectionAnnotationSink,
             gemmaSubtitlePreferences = gemmaSubtitlePreferences,

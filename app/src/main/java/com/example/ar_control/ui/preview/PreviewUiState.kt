@@ -3,6 +3,7 @@ package com.example.ar_control.ui.preview
 import com.example.ar_control.camera.CameraSourceKind
 import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.detection.DetectedObject
+import com.example.ar_control.face.FaceBoundingBox
 import com.example.ar_control.gemma.DEFAULT_GEMMA_CAPTION_PROMPT
 import com.example.ar_control.recording.RecordedClip
 import com.example.ar_control.recording.RecordingStatus
@@ -20,6 +21,7 @@ data class PreviewUiState(
     val zoomFactor: Float = 1.0f,
     val recordVideoEnabled: Boolean = false,
     val objectDetectionEnabled: Boolean = false,
+    val faceRecognitionEnabled: Boolean = true,
     val transparentHudEnabled: Boolean = false,
     val gemmaSubtitlesEnabled: Boolean = false,
     val gemmaModelDisplayName: String? = null,
@@ -30,6 +32,7 @@ data class PreviewUiState(
     val faceRecognitionStatusText: String? = null,
     val recordingStatus: RecordingStatus = RecordingStatus.Idle,
     val detectedObjects: List<DetectedObject> = emptyList(),
+    val faceBoxes: List<FaceBoundingBox> = emptyList(),
     val inferenceFps: Float = 0f,
     val inferenceBackendLabel: String? = null,
     val recordedClips: List<RecordedClip> = emptyList(),
@@ -40,6 +43,7 @@ data class PreviewUiState(
     val brokenClipMetadata: BrokenClipMetadata? = null,
     val canChangeRecordVideo: Boolean = true,
     val canChangeObjectDetection: Boolean = true,
+    val canChangeFaceRecognition: Boolean = true,
     val canChangeTransparentHud: Boolean = true,
     val canChangeGemmaSubtitles: Boolean = true,
     val canChangeCameraSource: Boolean = true

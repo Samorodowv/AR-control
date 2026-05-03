@@ -15,7 +15,9 @@ import com.example.ar_control.face.FaceEnrollmentResult
 import com.example.ar_control.face.FaceRecognitionSession
 import com.example.ar_control.face.FaceRecognitionState
 import com.example.ar_control.face.FaceRecognitionStatus
+import com.example.ar_control.face.FaceRecognitionPreferences
 import com.example.ar_control.face.FaceRecognizer
+import com.example.ar_control.face.NoOpFaceRecognitionPreferences
 import com.example.ar_control.face.NoOpFaceRecognizer
 import com.example.ar_control.gemma.DEFAULT_GEMMA_CAPTION_PROMPT
 import com.example.ar_control.gemma.GemmaCaptionSession
@@ -64,6 +66,7 @@ class PreviewViewModel(
 
         override fun setObjectDetectionEnabled(enabled: Boolean) = Unit
     },
+    private val faceRecognitionPreferences: FaceRecognitionPreferences = NoOpFaceRecognitionPreferences,
     private val objectDetector: ObjectDetector = NoOpObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
@@ -238,6 +241,23 @@ class PreviewViewModel(
         _uiState.value = applyRecoveryState(_uiState.value.copy(objectDetectionEnabled = enabled))
     }
 
+    fun setFaceRecognitionEnabled(enabled: Boolean) {
+        if (recoverySnapshot.isSafeMode) {
+            sessionLog.record("PreviewViewModel", "Face recognition preference change ignored because safe mode is active")
+            return
+        }
+        faceRecognitionPreferences.setFaceRecognitionEnabled(enabled)
+        sessionLog.record("PreviewViewModel", "Face recognition preference changed: $enabled")
+        if (!enabled) {
+            closeFaceRecognitionSession(clearStatus = true)
+        }
+        _uiState.value = applyRecoveryState(_uiState.value.copy(
+            faceRecognitionEnabled = enabled,
+            faceRecognitionStatusText = if (enabled) _uiState.value.faceRecognitionStatusText else null,
+            faceBoxes = if (enabled) _uiState.value.faceBoxes else emptyList()
+        ))
+    }
+
     fun setTransparentHudEnabled(enabled: Boolean) {
         if (recoverySnapshot.isSafeMode) {
             sessionLog.record("PreviewViewModel", "Transparent HUD preference change ignored because safe mode is active")
@@ -279,6 +299,7 @@ class PreviewViewModel(
             recordVideoEnabled = currentState.recordVideoEnabled,
             objectDetectionEnabled = currentState.objectDetectionEnabled,
             transparentHudEnabled = currentState.transparentHudEnabled,
+            faceRecognitionEnabled = currentState.faceRecognitionEnabled,
             gemmaSubtitlesEnabled = currentState.gemmaSubtitlesEnabled,
             gemmaModelDisplayName = currentState.gemmaModelDisplayName,
             gemmaPrompt = currentState.gemmaPrompt,
@@ -377,6 +398,7 @@ class PreviewViewModel(
                 cameraSourceBaseState(selectedSource).copy(
                     recordVideoEnabled = recordingPreferences.isRecordingEnabled(),
                     objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled(),
+                    faceRecognitionEnabled = faceRecognitionPreferences.isFaceRecognitionEnabled(),
                     transparentHudEnabled = false,
                     gemmaSubtitlesEnabled = gemmaSubtitlePreferences.isGemmaSubtitlesEnabled(),
                     gemmaModelDisplayName = gemmaSubtitlePreferences.getModelDisplayName(),
@@ -437,6 +459,10 @@ class PreviewViewModel(
     }
 
     fun rememberCurrentFace() {
+        if (!_uiState.value.faceRecognitionEnabled) {
+            sessionLog.record("PreviewViewModel", "Face enrollment ignored because face recognition is disabled")
+            return
+        }
         val session = activeFaceRecognitionSession
         if (!_uiState.value.isPreviewRunning || session == null) {
             _uiState.value = applyRecoveryState(_uiState.value.copy(
@@ -481,6 +507,7 @@ class PreviewViewModel(
     private fun loadInitialRecordingState() {
         val recordVideoEnabled = recordingPreferences.isRecordingEnabled()
         val objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled()
+        val faceRecognitionEnabled = faceRecognitionPreferences.isFaceRecognitionEnabled()
         val gemmaSubtitlesEnabled = gemmaSubtitlePreferences.isGemmaSubtitlesEnabled()
         val gemmaModelDisplayName = gemmaSubtitlePreferences.getModelDisplayName()
         val gemmaPrompt = gemmaSubtitlePreferences.getCaptionPrompt()
@@ -488,6 +515,7 @@ class PreviewViewModel(
         _uiState.value = applyRecoveryState(cameraSourceBaseState(selectedSource).copy(
             recordVideoEnabled = recordVideoEnabled,
             objectDetectionEnabled = objectDetectionEnabled,
+            faceRecognitionEnabled = faceRecognitionEnabled,
             gemmaSubtitlesEnabled = gemmaSubtitlesEnabled,
             gemmaModelDisplayName = gemmaModelDisplayName,
             gemmaPrompt = gemmaPrompt
@@ -554,24 +582,30 @@ class PreviewViewModel(
         val shouldRunDetection = _uiState.value.objectDetectionEnabled
         val shouldRecord = _uiState.value.recordVideoEnabled
         val shouldRunGemma = _uiState.value.gemmaSubtitlesEnabled
+        val shouldRunFaceRecognition = _uiState.value.faceRecognitionEnabled
         val gemmaModelPath = gemmaSubtitlePreferences.getModelPath()
         var startedFaceRecognitionSession: FaceRecognitionSession? = null
-        val faceRecognitionSession = faceRecognizer.start(previewSize) { state ->
-            viewModelScope.launch {
-                if (
-                    isCurrentPreviewGeneration(generation) &&
-                    activeFaceRecognitionSession === startedFaceRecognitionSession &&
-                    _uiState.value.isPreviewRunning
-                ) {
-                    _uiState.value = applyRecoveryState(_uiState.value.copy(
-                        faceRecognitionStatusText = state.toStatusText()
-                    ))
+        val faceRecognitionSession = if (shouldRunFaceRecognition) {
+            faceRecognizer.start(previewSize) { state ->
+                viewModelScope.launch {
+                    if (
+                        isCurrentPreviewGeneration(generation) &&
+                        activeFaceRecognitionSession === startedFaceRecognitionSession &&
+                        _uiState.value.isPreviewRunning
+                    ) {
+                        _uiState.value = applyRecoveryState(_uiState.value.copy(
+                            faceRecognitionStatusText = state.toStatusText(),
+                            faceBoxes = state.faceBoxes
+                        ))
+                    }
                 }
             }
+        } else {
+            null
         }
         startedFaceRecognitionSession = faceRecognitionSession
         activeFaceRecognitionSession = faceRecognitionSession
-        val shouldRunFaceRecognitionFrames = faceRecognitionSession.currentState.modelReady
+        val shouldRunFaceRecognitionFrames = faceRecognitionSession?.currentState?.modelReady == true
         if (!shouldRunDetection) {
             detectionAnnotationSink.clearDetections()
         }
@@ -675,7 +709,7 @@ class PreviewViewModel(
                 recorderTarget = null,
                 detectionSession = detectionSession,
                 gemmaCaptionSession = gemmaCaptionSession,
-                faceRecognitionSession = faceRecognitionSession.takeIf { shouldRunFaceRecognitionFrames }
+                faceRecognitionSession = faceRecognitionSession?.takeIf { shouldRunFaceRecognitionFrames }
             ) ?: return
             startFrameCallbackCapture(
                 target = captureTarget,
@@ -719,7 +753,7 @@ class PreviewViewModel(
                     recorderTarget = recorderResult.inputTarget,
                     detectionSession = detectionSession,
                     gemmaCaptionSession = gemmaCaptionSession,
-                    faceRecognitionSession = faceRecognitionSession.takeIf { shouldRunFaceRecognitionFrames }
+                    faceRecognitionSession = faceRecognitionSession?.takeIf { shouldRunFaceRecognitionFrames }
                 )
                 if (captureTarget == null) {
                     closeDetectionSession(clearDetections = true)
@@ -980,15 +1014,19 @@ class PreviewViewModel(
                 zoomFactor = minZoomFactor,
                 recordVideoEnabled = false,
                 objectDetectionEnabled = false,
+                faceRecognitionEnabled = false,
                 transparentHudEnabled = false,
                 gemmaSubtitlesEnabled = false,
                 gemmaSubtitleText = "",
+                faceRecognitionStatusText = null,
+                faceBoxes = emptyList(),
                 recordingStatus = RecordingStatus.Idle,
                 isSafeMode = true,
                 safeModeReason = snapshot.safeModeReason,
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = false,
                 canChangeObjectDetection = false,
+                canChangeFaceRecognition = false,
                 canChangeTransparentHud = false,
                 canChangeGemmaSubtitles = false,
                 canChangeCameraSource = false,
@@ -1002,6 +1040,7 @@ class PreviewViewModel(
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = true,
                 canChangeObjectDetection = true,
+                canChangeFaceRecognition = true,
                 canChangeTransparentHud = true,
                 canChangeGemmaSubtitles = true,
                 canChangeCameraSource = !baseState.isPreviewRunning
@@ -1056,6 +1095,8 @@ class PreviewViewModel(
             zoomFactor = minZoomFactor,
             recordingStatus = recordingStatus,
             detectedObjects = emptyList(),
+            faceRecognitionStatusText = null,
+            faceBoxes = emptyList(),
             inferenceFps = 0f,
             inferenceBackendLabel = null,
             errorMessage = errorMessage
@@ -1077,6 +1118,8 @@ class PreviewViewModel(
             zoomFactor = minZoomFactor,
             recordingStatus = recordingStatus,
             detectedObjects = emptyList(),
+            faceRecognitionStatusText = null,
+            faceBoxes = emptyList(),
             inferenceFps = 0f,
             inferenceBackendLabel = null,
             errorMessage = errorMessage
@@ -1098,6 +1141,8 @@ class PreviewViewModel(
             zoomFactor = minZoomFactor,
             recordingStatus = recordingStatus,
             detectedObjects = emptyList(),
+            faceRecognitionStatusText = null,
+            faceBoxes = emptyList(),
             errorMessage = errorMessage
         ))
     }
@@ -1115,6 +1160,8 @@ class PreviewViewModel(
                 zoomFactor = minZoomFactor,
                 recordingStatus = RecordingStatus.Idle,
                 detectedObjects = emptyList(),
+                faceRecognitionStatusText = null,
+                faceBoxes = emptyList(),
                 gemmaSubtitleText = "",
                 errorMessage = null
             )
@@ -1129,6 +1176,8 @@ class PreviewViewModel(
                 zoomFactor = minZoomFactor,
                 recordingStatus = RecordingStatus.Idle,
                 detectedObjects = emptyList(),
+                faceRecognitionStatusText = null,
+                faceBoxes = emptyList(),
                 gemmaSubtitleText = "",
                 errorMessage = null
             )
@@ -1146,6 +1195,8 @@ class PreviewViewModel(
             zoomFactor = minZoomFactor,
             recordingStatus = RecordingStatus.Idle,
             detectedObjects = emptyList(),
+            faceRecognitionStatusText = null,
+            faceBoxes = emptyList(),
             inferenceFps = 0f,
             inferenceBackendLabel = null,
             errorMessage = null
@@ -1257,7 +1308,10 @@ class PreviewViewModel(
         activeFaceRecognitionSession?.close()
         activeFaceRecognitionSession = null
         if (clearStatus) {
-            _uiState.value = applyRecoveryState(_uiState.value.copy(faceRecognitionStatusText = null))
+            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                faceRecognitionStatusText = null,
+                faceBoxes = emptyList()
+            ))
         }
     }
 

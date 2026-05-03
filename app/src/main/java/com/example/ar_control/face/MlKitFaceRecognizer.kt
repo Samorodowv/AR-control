@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Rect
 import com.example.ar_control.camera.PreviewSize
+import com.example.ar_control.detection.DetectionBoundingBox
 import com.example.ar_control.diagnostics.NoOpSessionLog
 import com.example.ar_control.diagnostics.SessionLog
 import com.example.ar_control.gemma.Yuv420SpImageEncoder
@@ -12,6 +13,7 @@ import com.example.ar_control.recording.VideoFrameConsumer
 import com.example.ar_control.recording.VideoFramePixelFormat
 import com.google.android.gms.tasks.Tasks
 import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.Face
 import com.google.mlkit.vision.face.FaceDetection
 import com.google.mlkit.vision.face.FaceDetector
 import com.google.mlkit.vision.face.FaceDetectorOptions
@@ -181,26 +183,31 @@ class MlKitFaceRecognizer(
                     faces.isEmpty() -> FaceRecognitionState(
                         modelReady = true,
                         faceCount = 0,
+                        faceBoxes = emptyList(),
                         status = FaceRecognitionStatus.NoFace
                     )
 
                     faces.size > 1 -> FaceRecognitionState(
                         modelReady = true,
                         faceCount = faces.size,
+                        faceBoxes = faces.map { face -> face.toFaceBox(MULTIPLE_FACE_LABEL) },
                         status = FaceRecognitionStatus.MultipleFaces
                     )
 
                     else -> {
+                        val face = faces.single()
                         val bitmap = bitmapFromNv21(nv21, previewSize)
-                        val faceBitmap = cropFace(bitmap, faces.single().boundingBox)
+                        val faceBitmap = cropFace(bitmap, face.boundingBox)
                         try {
                             val embedding = model.embed(faceBitmap)
                             val match = matcher.findBestMatch(embedding, embeddingStore.loadAll())
+                            val label = match?.face?.label ?: UNKNOWN_FACE_LABEL
                             FaceRecognitionState(
                                 modelReady = true,
                                 faceCount = 1,
                                 bestFaceEmbedding = embedding,
                                 matchedFace = match?.face,
+                                faceBoxes = listOf(face.toFaceBox(label)),
                                 status = if (match == null) {
                                     FaceRecognitionStatus.UnknownFace
                                 } else {
@@ -235,6 +242,19 @@ class MlKitFaceRecognizer(
         private fun cropFace(source: Bitmap, bounds: Rect): Bitmap {
             val padded = bounds.padded(scale = 0.18f, maxWidth = source.width, maxHeight = source.height)
             return Bitmap.createBitmap(source, padded.left, padded.top, padded.width(), padded.height())
+        }
+
+        private fun Face.toFaceBox(label: String): FaceBoundingBox {
+            val bounds = boundingBox
+            return FaceBoundingBox(
+                label = label,
+                boundingBox = DetectionBoundingBox(
+                    left = bounds.left.toFloat(),
+                    top = bounds.top.toFloat(),
+                    right = bounds.right.toFloat(),
+                    bottom = bounds.bottom.toFloat()
+                )
+            )
         }
 
         private fun Rect.padded(scale: Float, maxWidth: Int, maxHeight: Int): Rect {
@@ -277,5 +297,7 @@ class MlKitFaceRecognizer(
         const val TAG = "MlKitFaceRecognizer"
         const val WORKER_THREAD_NAME = "face-recognition"
         const val MIN_FRAME_INTERVAL_NANOS = 250_000_000L
+        const val UNKNOWN_FACE_LABEL = "Unknown face"
+        const val MULTIPLE_FACE_LABEL = "Face"
     }
 }

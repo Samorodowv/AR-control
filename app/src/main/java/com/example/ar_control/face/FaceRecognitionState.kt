@@ -1,11 +1,19 @@
 package com.example.ar_control.face
 
+import com.example.ar_control.detection.DetectionBoundingBox
+
 data class FaceRecognitionState(
     val modelReady: Boolean = false,
     val faceCount: Int = 0,
     val bestFaceEmbedding: FaceEmbedding? = null,
     val matchedFace: RememberedFace? = null,
+    val faceBoxes: List<FaceBoundingBox> = emptyList(),
     val status: FaceRecognitionStatus = FaceRecognitionStatus.ModelMissing
+)
+
+data class FaceBoundingBox(
+    val label: String,
+    val boundingBox: DetectionBoundingBox
 )
 
 enum class FaceRecognitionStatus {

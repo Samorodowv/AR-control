@@ -1,0 +1,281 @@
+package com.example.ar_control.face
+
+import android.content.Context
+import android.graphics.Bitmap
+import android.graphics.Rect
+import com.example.ar_control.camera.PreviewSize
+import com.example.ar_control.diagnostics.NoOpSessionLog
+import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.gemma.Yuv420SpImageEncoder
+import com.example.ar_control.recording.RecordingInputTarget
+import com.example.ar_control.recording.VideoFrameConsumer
+import com.example.ar_control.recording.VideoFramePixelFormat
+import com.google.android.gms.tasks.Tasks
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.face.FaceDetection
+import com.google.mlkit.vision.face.FaceDetector
+import com.google.mlkit.vision.face.FaceDetectorOptions
+import java.nio.ByteBuffer
+import java.util.concurrent.atomic.AtomicBoolean
+
+class MlKitFaceRecognizer(
+    context: Context,
+    private val embeddingStore: FaceEmbeddingStore,
+    private val matcher: FaceEmbeddingMatcher = FaceEmbeddingMatcher(),
+    private val modelAssetPath: String = LiteRtFaceEmbeddingModel.DEFAULT_MODEL_ASSET_PATH,
+    private val sessionLog: SessionLog = NoOpSessionLog
+) : FaceRecognizer {
+    private val appContext = context.applicationContext
+
+    override fun start(
+        previewSize: PreviewSize,
+        onStateUpdated: (FaceRecognitionState) -> Unit
+    ): FaceRecognitionSession {
+        val model = runCatching {
+            LiteRtFaceEmbeddingModel.openOrNull(appContext, modelAssetPath)
+        }.getOrElse { error ->
+            sessionLog.record(TAG, "Face model open failed: ${error.message ?: error::class.java.simpleName}")
+            null
+        }
+        if (model == null) {
+            val state = FaceRecognitionState(modelReady = false)
+            onStateUpdated(state)
+            return MissingModelFaceRecognitionSession(embeddingStore, state)
+        }
+        return MlKitFaceRecognitionSession(
+            previewSize = previewSize,
+            model = model,
+            embeddingStore = embeddingStore,
+            matcher = matcher,
+            onStateUpdated = onStateUpdated,
+            sessionLog = sessionLog
+        )
+    }
+
+    private class MlKitFaceRecognitionSession(
+        private val previewSize: PreviewSize,
+        private val model: FaceEmbeddingModel,
+        private val embeddingStore: FaceEmbeddingStore,
+        private val matcher: FaceEmbeddingMatcher,
+        private val onStateUpdated: (FaceRecognitionState) -> Unit,
+        private val sessionLog: SessionLog
+    ) : FaceRecognitionSession {
+        private val enrollmentController = FaceEnrollmentController(embeddingStore)
+        private val detector: FaceDetector = FaceDetection.getClient(
+            FaceDetectorOptions.Builder()
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
+                .setMinFaceSize(0.12f)
+                .build()
+        )
+        private val closed = AtomicBoolean(false)
+        private val frameLock = Object()
+        private val workerThread = Thread(::runLoop, WORKER_THREAD_NAME).apply {
+            isDaemon = true
+            start()
+        }
+
+        @Volatile
+        private var latestPendingFrame: PendingFrame? = null
+
+        @Volatile
+        override var currentState: FaceRecognitionState = FaceRecognitionState(
+            modelReady = true,
+            status = FaceRecognitionStatus.NoFace
+        )
+            private set
+
+        override val inputTarget: RecordingInputTarget.FrameCallbackTarget =
+            RecordingInputTarget.FrameCallbackTarget(
+                pixelFormat = VideoFramePixelFormat.YUV420SP,
+                minimumFrameIntervalNanos = MIN_FRAME_INTERVAL_NANOS,
+                frameConsumer = VideoFrameConsumer { frame, timestampNanos ->
+                    enqueueFrame(frame, timestampNanos)
+                }
+            )
+
+        init {
+            onStateUpdated(currentState)
+        }
+
+        override fun rememberCurrentFace(): FaceEnrollmentResult {
+            val result = enrollmentController.rememberCurrentFace(currentState)
+            if (result is FaceEnrollmentResult.Remembered) {
+                currentState = currentState.copy(
+                    matchedFace = result.face,
+                    status = FaceRecognitionStatus.RememberedFace
+                )
+                onStateUpdated(currentState)
+            }
+            return result
+        }
+
+        override fun close() {
+            if (!closed.compareAndSet(false, true)) {
+                return
+            }
+            synchronized(frameLock) {
+                latestPendingFrame = null
+                frameLock.notifyAll()
+            }
+            workerThread.interrupt()
+        }
+
+        private fun enqueueFrame(frame: ByteBuffer, timestampNanos: Long) {
+            if (closed.get()) {
+                return
+            }
+            val bytes = frame.asReadOnlyBuffer().let { buffer ->
+                ByteArray(buffer.remaining()).also(buffer::get)
+            }
+            synchronized(frameLock) {
+                if (closed.get()) {
+                    return
+                }
+                latestPendingFrame = PendingFrame(bytes, timestampNanos)
+                frameLock.notifyAll()
+            }
+        }
+
+        private fun runLoop() {
+            try {
+                while (true) {
+                    val frame = awaitNextFrame() ?: return
+                    processFrame(frame)
+                }
+            } finally {
+                runCatching { detector.close() }
+                runCatching { model.close() }
+            }
+        }
+
+        private fun awaitNextFrame(): PendingFrame? {
+            try {
+                synchronized(frameLock) {
+                    while (!closed.get() && latestPendingFrame == null) {
+                        frameLock.wait()
+                    }
+                    if (closed.get()) {
+                        return null
+                    }
+                    return latestPendingFrame.also {
+                        latestPendingFrame = null
+                    }
+                }
+            } catch (_: InterruptedException) {
+                return null
+            }
+        }
+
+        private fun processFrame(frame: PendingFrame) {
+            runCatching {
+                val nv21 = Yuv420SpImageEncoder.convertUvOrderYuv420SpToNv21(frame.bytes, previewSize)
+                val inputImage = InputImage.fromByteArray(
+                    nv21,
+                    previewSize.width,
+                    previewSize.height,
+                    previewSize.normalizedRotationDegrees,
+                    InputImage.IMAGE_FORMAT_NV21
+                )
+                val faces = Tasks.await(detector.process(inputImage))
+                val nextState = when {
+                    faces.isEmpty() -> FaceRecognitionState(
+                        modelReady = true,
+                        faceCount = 0,
+                        status = FaceRecognitionStatus.NoFace
+                    )
+
+                    faces.size > 1 -> FaceRecognitionState(
+                        modelReady = true,
+                        faceCount = faces.size,
+                        status = FaceRecognitionStatus.MultipleFaces
+                    )
+
+                    else -> {
+                        val bitmap = bitmapFromNv21(nv21, previewSize)
+                        val faceBitmap = cropFace(bitmap, faces.single().boundingBox)
+                        try {
+                            val embedding = model.embed(faceBitmap)
+                            val match = matcher.findBestMatch(embedding, embeddingStore.loadAll())
+                            FaceRecognitionState(
+                                modelReady = true,
+                                faceCount = 1,
+                                bestFaceEmbedding = embedding,
+                                matchedFace = match?.face,
+                                status = if (match == null) {
+                                    FaceRecognitionStatus.UnknownFace
+                                } else {
+                                    FaceRecognitionStatus.RememberedFace
+                                }
+                            )
+                        } finally {
+                            faceBitmap.recycle()
+                            bitmap.recycle()
+                        }
+                    }
+                }
+                if (!closed.get()) {
+                    currentState = nextState
+                    onStateUpdated(nextState)
+                }
+            }.onFailure { error ->
+                sessionLog.record(TAG, "Face recognition frame failed: ${error.message ?: error::class.java.simpleName}")
+            }
+        }
+
+        private fun bitmapFromNv21(nv21: ByteArray, previewSize: PreviewSize): Bitmap {
+            val pixels = Yuv420SpImageEncoder.convertNv21ToArgbPixelsForFallback(nv21, previewSize)
+            return Bitmap.createBitmap(
+                pixels,
+                previewSize.width,
+                previewSize.height,
+                Bitmap.Config.ARGB_8888
+            )
+        }
+
+        private fun cropFace(source: Bitmap, bounds: Rect): Bitmap {
+            val padded = bounds.padded(scale = 0.18f, maxWidth = source.width, maxHeight = source.height)
+            return Bitmap.createBitmap(source, padded.left, padded.top, padded.width(), padded.height())
+        }
+
+        private fun Rect.padded(scale: Float, maxWidth: Int, maxHeight: Int): Rect {
+            val horizontalPadding = (width() * scale).toInt()
+            val verticalPadding = (height() * scale).toInt()
+            return Rect(
+                (left - horizontalPadding).coerceAtLeast(0),
+                (top - verticalPadding).coerceAtLeast(0),
+                (right + horizontalPadding).coerceAtMost(maxWidth),
+                (bottom + verticalPadding).coerceAtMost(maxHeight)
+            )
+        }
+
+        private data class PendingFrame(
+            val bytes: ByteArray,
+            val timestampNanos: Long
+        )
+    }
+
+    private class MissingModelFaceRecognitionSession(
+        embeddingStore: FaceEmbeddingStore,
+        override val currentState: FaceRecognitionState
+    ) : FaceRecognitionSession {
+        private val enrollmentController = FaceEnrollmentController(embeddingStore)
+
+        override val inputTarget: RecordingInputTarget.FrameCallbackTarget =
+            RecordingInputTarget.FrameCallbackTarget(
+                pixelFormat = VideoFramePixelFormat.YUV420SP,
+                frameConsumer = VideoFrameConsumer { _, _ -> }
+            )
+
+        override fun rememberCurrentFace(): FaceEnrollmentResult {
+            return enrollmentController.rememberCurrentFace(currentState)
+        }
+
+        override fun close() = Unit
+    }
+
+    private companion object {
+        const val TAG = "MlKitFaceRecognizer"
+        const val WORKER_THREAD_NAME = "face-recognition"
+        const val MIN_FRAME_INTERVAL_NANOS = 250_000_000L
+    }
+}

@@ -85,6 +85,7 @@ dependencies {
     implementation(libs.material)
     implementation(libs.litert)
     implementation(libs.litert.lm.android)
+    implementation(libs.mlkit.face.detection)
     implementation(project(":vendor:onexr"))
     implementation(project(":vendor:uvccamera"))
     testImplementation(libs.junit)

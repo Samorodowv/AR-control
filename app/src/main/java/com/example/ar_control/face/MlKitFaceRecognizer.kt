@@ -20,6 +20,29 @@ import com.google.mlkit.vision.face.FaceDetectorOptions
 import java.nio.ByteBuffer
 import java.util.concurrent.atomic.AtomicBoolean
 
+internal fun preEmbeddingFaceRecognitionState(
+    acceptedCandidateCount: Int,
+    stableBoxes: List<FaceBoundingBox>
+): FaceRecognitionState? {
+    return when {
+        acceptedCandidateCount > 1 || stableBoxes.size > 1 -> FaceRecognitionState(
+            modelReady = true,
+            faceCount = maxOf(acceptedCandidateCount, stableBoxes.size),
+            faceBoxes = stableBoxes,
+            status = FaceRecognitionStatus.MultipleFaces
+        )
+
+        stableBoxes.isEmpty() -> FaceRecognitionState(
+            modelReady = true,
+            faceCount = 0,
+            faceBoxes = emptyList(),
+            status = FaceRecognitionStatus.NoFace
+        )
+
+        else -> null
+    }
+}
+
 class MlKitFaceRecognizer(
     context: Context,
     private val embeddingStore: FaceEmbeddingStore,
@@ -63,10 +86,12 @@ class MlKitFaceRecognizer(
         private val sessionLog: SessionLog
     ) : FaceRecognitionSession {
         private val enrollmentController = FaceEnrollmentController(embeddingStore)
+        private val faceBoxFilter = FaceBoxFilter()
+        private val faceBoxStabilizer = FaceBoxStabilizer()
         private val detector: FaceDetector = FaceDetection.getClient(
             FaceDetectorOptions.Builder()
-                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_FAST)
-                .setMinFaceSize(0.12f)
+                .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
+                .setMinFaceSize(0.15f)
                 .build()
         )
         private val closed = AtomicBoolean(false)
@@ -185,46 +210,40 @@ class MlKitFaceRecognizer(
                     InputImage.IMAGE_FORMAT_NV21
                 )
                 val faces = Tasks.await(detector.process(inputImage))
-                val nextState = when {
-                    faces.isEmpty() -> FaceRecognitionState(
-                        modelReady = true,
-                        faceCount = 0,
-                        faceBoxes = emptyList(),
-                        status = FaceRecognitionStatus.NoFace
-                    )
-
-                    faces.size > 1 -> FaceRecognitionState(
-                        modelReady = true,
-                        faceCount = faces.size,
-                        faceBoxes = faces.map { face -> face.toFaceBox(accessStatus = null) },
-                        status = FaceRecognitionStatus.MultipleFaces
-                    )
-
-                    else -> {
-                        val face = faces.single()
-                        val bitmap = bitmapFromNv21(nv21, previewSize)
-                        val faceBitmap = cropFace(bitmap, face.boundingBox)
-                        try {
-                            val embedding = model.embed(faceBitmap)
-                            val match = matcher.findBestMatch(embedding, embeddingStore.loadAll())
-                            FaceRecognitionState(
-                                modelReady = true,
-                                faceCount = 1,
-                                bestFaceEmbedding = embedding,
-                                matchedFace = match?.face,
-                                faceBoxes = listOf(
-                                    face.toFaceBox(accessStatus = match?.face?.accessStatus)
-                                ),
-                                status = if (match == null) {
-                                    FaceRecognitionStatus.UnknownFace
-                                } else {
-                                    FaceRecognitionStatus.RememberedFace
-                                }
-                            )
-                        } finally {
-                            faceBitmap.recycle()
-                            bitmap.recycle()
-                        }
+                val acceptedCandidates = faces
+                    .map { face -> face to face.toFaceBox(accessStatus = null) }
+                    .filter { (_, box) -> faceBoxFilter.isAccepted(box.boundingBox, previewSize) }
+                val stableBoxes = faceBoxStabilizer.update(
+                    acceptedCandidates.map { (_, box) -> box }
+                )
+                val nextState = preEmbeddingFaceRecognitionState(
+                    acceptedCandidateCount = acceptedCandidates.size,
+                    stableBoxes = stableBoxes
+                ) ?: run {
+                    val face = acceptedCandidates.single().first
+                    val stableBox = stableBoxes.single()
+                    val bitmap = bitmapFromNv21(nv21, previewSize)
+                    val faceBitmap = cropFace(bitmap, face.boundingBox)
+                    try {
+                        val embedding = model.embed(faceBitmap)
+                        val match = matcher.findBestMatch(embedding, embeddingStore.loadAll())
+                        FaceRecognitionState(
+                            modelReady = true,
+                            faceCount = 1,
+                            bestFaceEmbedding = embedding,
+                            matchedFace = match?.face,
+                            faceBoxes = listOf(
+                                stableBox.copy(accessStatus = match?.face?.accessStatus)
+                            ),
+                            status = if (match == null) {
+                                FaceRecognitionStatus.UnknownFace
+                            } else {
+                                FaceRecognitionStatus.RememberedFace
+                            }
+                        )
+                    } finally {
+                        faceBitmap.recycle()
+                        bitmap.recycle()
                     }
                 }
                 if (!closed.get()) {

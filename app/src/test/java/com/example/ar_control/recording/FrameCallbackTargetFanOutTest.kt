@@ -79,6 +79,124 @@ class FrameCallbackTargetFanOutTest {
         assertEquals(0L, combined.minimumFrameIntervalNanos)
     }
 
+    @Test
+    fun combine_respectsEachTargetsOwnMinimumInterval() {
+        val slowTimestamps = mutableListOf<Long>()
+        val fastTimestamps = mutableListOf<Long>()
+        val combined = FrameCallbackTargetFanOut.combine(
+            listOf(
+                RecordingInputTarget.FrameCallbackTarget(
+                    pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    minimumFrameIntervalNanos = 250_000_000L,
+                    frameConsumer = VideoFrameConsumer { _, timestampNanos ->
+                        slowTimestamps += timestampNanos
+                    }
+                ),
+                RecordingInputTarget.FrameCallbackTarget(
+                    pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    minimumFrameIntervalNanos = 0L,
+                    frameConsumer = VideoFrameConsumer { _, timestampNanos ->
+                        fastTimestamps += timestampNanos
+                    }
+                )
+            )
+        )
+
+        listOf(0L, 100_000_000L, 200_000_000L, 250_000_000L, 260_000_000L, 500_000_000L)
+            .forEach { timestampNanos ->
+                combined.frameConsumer.onFrame(ByteBuffer.wrap(byteArrayOf(7)), timestampNanos)
+            }
+
+        assertEquals(
+            listOf(0L, 250_000_000L, 500_000_000L),
+            slowTimestamps
+        )
+        assertEquals(
+            listOf(0L, 100_000_000L, 200_000_000L, 250_000_000L, 260_000_000L, 500_000_000L),
+            fastTimestamps
+        )
+    }
+
+    @Test
+    fun combine_respectsSingleTargetsOwnMinimumInterval() {
+        val timestamps = mutableListOf<Long>()
+        val combined = FrameCallbackTargetFanOut.combine(
+            listOf(
+                RecordingInputTarget.FrameCallbackTarget(
+                    pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    minimumFrameIntervalNanos = 250_000_000L,
+                    frameConsumer = VideoFrameConsumer { _, timestampNanos ->
+                        timestamps += timestampNanos
+                    }
+                )
+            )
+        )
+
+        listOf(0L, 100_000_000L, 250_000_000L, 260_000_000L, 500_000_000L)
+            .forEach { timestampNanos ->
+                combined.frameConsumer.onFrame(ByteBuffer.wrap(byteArrayOf(7)), timestampNanos)
+            }
+
+        assertEquals(250_000_000L, combined.minimumFrameIntervalNanos)
+        assertEquals(
+            listOf(0L, 250_000_000L, 500_000_000L),
+            timestamps
+        )
+    }
+
+    @Test
+    fun combine_forwardsEveryFrameForNegativeMinimumInterval() {
+        val timestamps = mutableListOf<Long>()
+        val combined = FrameCallbackTargetFanOut.combine(
+            listOf(
+                RecordingInputTarget.FrameCallbackTarget(
+                    pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    minimumFrameIntervalNanos = -1L,
+                    frameConsumer = VideoFrameConsumer { _, timestampNanos ->
+                        timestamps += timestampNanos
+                    }
+                )
+            )
+        )
+
+        listOf(0L, 100_000_000L, 50_000_000L, 100_000_000L)
+            .forEach { timestampNanos ->
+                combined.frameConsumer.onFrame(ByteBuffer.wrap(byteArrayOf(7)), timestampNanos)
+            }
+
+        assertEquals(-1L, combined.minimumFrameIntervalNanos)
+        assertEquals(
+            listOf(0L, 100_000_000L, 50_000_000L, 100_000_000L),
+            timestamps
+        )
+    }
+
+    @Test
+    fun combine_doesNotForwardOutOfOrderFramesForPositiveMinimumInterval() {
+        val timestamps = mutableListOf<Long>()
+        val combined = FrameCallbackTargetFanOut.combine(
+            listOf(
+                RecordingInputTarget.FrameCallbackTarget(
+                    pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    minimumFrameIntervalNanos = 100_000_000L,
+                    frameConsumer = VideoFrameConsumer { _, timestampNanos ->
+                        timestamps += timestampNanos
+                    }
+                )
+            )
+        )
+
+        listOf(300_000_000L, 200_000_000L, 400_000_000L)
+            .forEach { timestampNanos ->
+                combined.frameConsumer.onFrame(ByteBuffer.wrap(byteArrayOf(7)), timestampNanos)
+            }
+
+        assertEquals(
+            listOf(300_000_000L, 400_000_000L),
+            timestamps
+        )
+    }
+
     private fun ByteBuffer.copyBytes(): ByteArray {
         val duplicate = duplicate()
         val bytes = ByteArray(duplicate.remaining())

@@ -31,17 +31,39 @@ object FrameCallbackTargetFanOut {
         require(targets.all { it.pixelFormat == pixelFormat }) {
             "All frame callback targets must use the same pixel format"
         }
-        if (targets.size == 1) {
-            return targets.single()
-        }
+        val lastTimestampsNanos = LongArray(targets.size) { Long.MIN_VALUE }
         return RecordingInputTarget.FrameCallbackTarget(
             pixelFormat = pixelFormat,
             minimumFrameIntervalNanos = targets.minOf { target -> target.minimumFrameIntervalNanos },
             frameConsumer = VideoFrameConsumer { frame, timestampNanos ->
-                for (target in targets) {
-                    target.frameConsumer.onFrame(frame.asReadOnlyBuffer(), timestampNanos)
+                targets.forEachIndexed { index, target ->
+                    if (
+                        shouldForwardFrame(
+                            timestampNanos,
+                            lastTimestampsNanos[index],
+                            target.minimumFrameIntervalNanos
+                        )
+                    ) {
+                        lastTimestampsNanos[index] = timestampNanos
+                        target.frameConsumer.onFrame(frame.asReadOnlyBuffer(), timestampNanos)
+                    }
                 }
             }
         )
+    }
+
+    private fun shouldForwardFrame(
+        timestampNanos: Long,
+        lastTimestampNanos: Long,
+        minimumFrameIntervalNanos: Long
+    ): Boolean {
+        if (minimumFrameIntervalNanos <= 0L) {
+            return true
+        }
+        if (lastTimestampNanos == Long.MIN_VALUE) {
+            return true
+        }
+        return timestampNanos >= lastTimestampNanos &&
+            timestampNanos - lastTimestampNanos >= minimumFrameIntervalNanos
     }
 }

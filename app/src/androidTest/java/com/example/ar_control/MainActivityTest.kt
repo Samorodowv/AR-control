@@ -31,6 +31,8 @@ import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.di.AppContainer
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.InMemorySessionLog
+import com.example.ar_control.gemma.GemmaSubtitlePreferences
+import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipFileSharer
 import com.example.ar_control.recording.ClipRepository
 import com.example.ar_control.recording.RecordedClip
@@ -39,6 +41,7 @@ import com.example.ar_control.recording.RecordingPreferences
 import com.example.ar_control.recording.VideoRecorder
 import com.example.ar_control.recovery.RecoveryManager
 import com.example.ar_control.recovery.RecoverySnapshot
+import com.example.ar_control.ui.preview.PreviewUiState
 import com.example.ar_control.ui.preview.PreviewViewModelFactory
 import com.example.ar_control.usb.EyeUsbConfigurator
 import com.example.ar_control.usb.UsbPermissionGateway
@@ -166,6 +169,37 @@ class MainActivityTest {
     }
 
     @Test
+    fun gemmaControlsAreVisibleOnControlScreen() {
+        ActivityScenario.launch(MainActivity::class.java).use {
+            onView(withId(R.id.gemmaSubtitlesCheckbox)).check(matches(isDisplayed()))
+            onView(withId(R.id.downloadGemmaModelButton)).check(matches(isDisplayed()))
+            onView(withId(R.id.gemmaModelStatusText)).check(matches(isDisplayed()))
+        }
+    }
+
+    @Test
+    fun gemmaSubtitlePillIsHiddenUntilPreviewCaptionExists() {
+        ActivityScenario.launch(MainActivity::class.java).use { scenario ->
+            onView(withId(R.id.gemmaSubtitleText)).check(
+                matches(withEffectiveVisibility(Visibility.GONE))
+            )
+
+            scenario.onActivity { activity ->
+                activity.renderForTest(
+                    PreviewUiState(
+                        isPreviewRunning = true,
+                        previewSize = PreviewSize(640, 480),
+                        gemmaSubtitleText = "a desk with a monitor"
+                    )
+                )
+            }
+
+            onView(withId(R.id.gemmaSubtitleText)).check(matches(isDisplayed()))
+            onView(withId(R.id.gemmaSubtitleText)).check(matches(withText("a desk with a monitor")))
+        }
+    }
+
+    @Test
     fun controlScreen_selectingClipUpdatesCheckboxAndEnablesClipActions() {
         ActivityScenario.launch(MainActivity::class.java).use {
             onView(withText("Record video")).check(matches(not(isChecked())))
@@ -280,6 +314,7 @@ private class FakeAppContainer(
         )
     )
     val detectionPreferences = FakeDetectionPreferences()
+    private val gemmaSubtitlePreferences = FakeGemmaSubtitlePreferences()
     override val clipFileSharer = FakeClipFileSharer(context)
     override val previewViewModelFactory = PreviewViewModelFactory(
         glassesSession = FakeGlassesSession(),
@@ -289,6 +324,8 @@ private class FakeAppContainer(
         recordingPreferences = recordingPreferences,
         detectionPreferences = detectionPreferences,
         objectDetector = NoOpObjectDetector,
+        gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+        gemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
         clipRepository = clipRepository,
         videoRecorder = FakeVideoRecorder(),
         recoveryManager = recoveryManager,
@@ -347,6 +384,32 @@ private class FakeDetectionPreferences(
     override fun setObjectDetectionEnabled(enabled: Boolean) {
         this.enabled = enabled
         setCalls += 1
+    }
+}
+
+private class FakeGemmaSubtitlePreferences : GemmaSubtitlePreferences {
+    private var enabled = false
+    private var modelPath: String? = null
+    private var modelDisplayName: String? = null
+
+    override fun isGemmaSubtitlesEnabled(): Boolean = enabled
+
+    override fun setGemmaSubtitlesEnabled(enabled: Boolean) {
+        this.enabled = enabled
+    }
+
+    override fun getModelPath(): String? = modelPath
+
+    override fun getModelDisplayName(): String? = modelDisplayName
+
+    override fun setModel(path: String, displayName: String?) {
+        modelPath = path
+        modelDisplayName = displayName
+    }
+
+    override fun clearModel() {
+        modelPath = null
+        modelDisplayName = null
     }
 }
 

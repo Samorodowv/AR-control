@@ -31,6 +31,37 @@
                 android:text="@string/camera_idle"
                 android:textAppearance="?attr/textAppearanceBodyLarge" />
 
+            <TextView
+                android:id="@+id/cameraSourceTitleText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_section_spacing"
+                android:text="@string/camera_source"
+                android:textAppearance="?attr/textAppearanceTitleMedium" />
+
+            <RadioGroup
+                android:id="@+id/cameraSourceRadioGroup"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:orientation="horizontal">
+
+                <com.google.android.material.radiobutton.MaterialRadioButton
+                    android:id="@+id/xrealCameraSourceRadio"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:text="@string/camera_source_xreal" />
+
+                <com.google.android.material.radiobutton.MaterialRadioButton
+                    android:id="@+id/androidCameraSourceRadio"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="@dimen/control_item_spacing"
+                    android:layout_weight="1"
+                    android:text="@string/camera_source_android" />
+            </RadioGroup>
+
             <com.google.android.material.card.MaterialCardView
                 android:id="@+id/recoveryCard"
                 android:layout_width="match_parent"
@@ -107,22 +138,79 @@
 
                 <com.google.android.material.checkbox.MaterialCheckBox
                     android:id="@+id/recordVideoCheckbox"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:text="@string/record_video" />
 
                 <com.google.android.material.checkbox.MaterialCheckBox
                     android:id="@+id/objectDetectionCheckbox"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/control_item_spacing"
                     android:text="@string/object_detection" />
 
                 <com.google.android.material.checkbox.MaterialCheckBox
                     android:id="@+id/transparentHudCheckbox"
-                    android:layout_width="wrap_content"
+                    android:layout_width="match_parent"
                     android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/control_item_spacing"
                     android:text="@string/transparent_hud" />
+
+                <com.google.android.material.checkbox.MaterialCheckBox
+                    android:id="@+id/gemmaSubtitlesCheckbox"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="@dimen/control_item_spacing"
+                    android:text="@string/gemma_subtitles" />
             </LinearLayout>
+
+            <TextView
+                android:id="@+id/gemmaModelStatusText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:text="@string/gemma_model_not_configured"
+                android:textAppearance="?attr/textAppearanceBodyMedium" />
+
+            <Button
+                android:id="@+id/downloadGemmaModelButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:text="@string/download_gemma_model" />
+
+            <TextView
+                android:id="@+id/gemmaPromptTitleText"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:text="@string/gemma_prompt_title"
+                android:textAppearance="?attr/textAppearanceTitleSmall" />
+
+            <com.google.android.material.textfield.TextInputLayout
+                android:id="@+id/gemmaPromptInputLayout"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:hint="@string/gemma_prompt_hint">
+
+                <com.google.android.material.textfield.TextInputEditText
+                    android:id="@+id/gemmaPromptEditText"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="top|start"
+                    android:inputType="textMultiLine|textCapSentences"
+                    android:maxLines="4"
+                    android:minLines="2" />
+            </com.google.android.material.textfield.TextInputLayout>
+
+            <Button
+                android:id="@+id/applyGemmaPromptButton"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="@dimen/control_item_spacing"
+                android:enabled="false"
+                android:text="@string/apply_gemma_prompt" />
 
             <TextView
                 android:id="@+id/recordedClipsTitle"
@@ -210,6 +298,26 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="center" />
+
+        <TextView
+            android:id="@+id/gemmaSubtitleText"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_gravity="bottom|center_horizontal"
+            android:layout_marginStart="@dimen/control_screen_padding"
+            android:layout_marginEnd="@dimen/control_screen_padding"
+            android:layout_marginBottom="@dimen/gemma_subtitle_margin_bottom"
+            android:background="#CC000000"
+            android:maxLines="8"
+            android:paddingStart="@dimen/gemma_subtitle_padding_horizontal"
+            android:paddingTop="@dimen/gemma_subtitle_padding_vertical"
+            android:paddingEnd="@dimen/gemma_subtitle_padding_horizontal"
+            android:paddingBottom="@dimen/gemma_subtitle_padding_vertical"
+            android:textAlignment="center"
+            android:textColor="@android:color/white"
+            android:textSize="@dimen/gemma_subtitle_text_size"
+            android:textStyle="bold"
+            android:visibility="gone" />
 
         <com.google.android.material.imageview.ShapeableImageView
             android:id="@+id/previewBackButton"

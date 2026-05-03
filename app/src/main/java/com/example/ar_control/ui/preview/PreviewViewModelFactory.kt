@@ -3,9 +3,14 @@ package com.example.ar_control.ui.preview
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
 import com.example.ar_control.camera.CameraSource
+import com.example.ar_control.camera.CameraSourcePreferences
 import com.example.ar_control.detection.DetectionPreferences
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.gemma.GemmaFrameCaptioner
+import com.example.ar_control.gemma.GemmaModelDownloadScheduler
+import com.example.ar_control.gemma.GemmaSubtitlePreferences
+import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipRepository
 import com.example.ar_control.recording.DetectionAnnotationSink
 import com.example.ar_control.recording.NoOpDetectionAnnotationSink
@@ -21,10 +26,15 @@ class PreviewViewModelFactory(
     private val eyeUsbConfigurator: EyeUsbConfigurator,
     private val usbPermissionGateway: UsbPermissionGateway,
     private val cameraSource: CameraSource,
+    private val androidCameraSource: CameraSource = cameraSource,
+    private val cameraSourcePreferences: CameraSourcePreferences = NoOpCameraSourcePreferences,
     private val recordingPreferences: RecordingPreferences,
     private val detectionPreferences: DetectionPreferences,
     private val objectDetector: ObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
+    private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
+    private val gemmaModelDownloadScheduler: GemmaModelDownloadScheduler? = null,
+    private val gemmaFrameCaptioner: GemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
     private val recoveryManager: RecoveryManager,
@@ -41,10 +51,15 @@ class PreviewViewModelFactory(
             eyeUsbConfigurator = eyeUsbConfigurator,
             usbPermissionGateway = usbPermissionGateway,
             cameraSource = cameraSource,
+            androidCameraSource = androidCameraSource,
+            cameraSourcePreferences = cameraSourcePreferences,
             recordingPreferences = recordingPreferences,
             detectionPreferences = detectionPreferences,
             objectDetector = objectDetector,
             detectionAnnotationSink = detectionAnnotationSink,
+            gemmaSubtitlePreferences = gemmaSubtitlePreferences,
+            gemmaModelDownloadScheduler = gemmaModelDownloadScheduler,
+            gemmaFrameCaptioner = gemmaFrameCaptioner,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,
             recoveryManager = recoveryManager,

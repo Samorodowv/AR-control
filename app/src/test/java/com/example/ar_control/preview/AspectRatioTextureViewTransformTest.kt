@@ -20,4 +20,14 @@ class AspectRatioTextureViewTransformTest {
         assertEquals(1.8f, transform.scaleX)
         assertEquals(1.8f, transform.scaleY)
     }
+
+    @Test
+    fun rotatedPreviewMetadataDoesNotRotateTexturePixels() {
+        val transform = PreviewTransformCalculator.calculate(
+            zoomFactor = 1.0f,
+            previewRotationDegrees = 90
+        )
+
+        assertEquals(0, transform.textureRotationDegrees)
+    }
 }

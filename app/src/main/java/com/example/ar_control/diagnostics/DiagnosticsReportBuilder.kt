@@ -19,11 +19,18 @@ class DiagnosticsReportBuilder(
             appendLine("Generated at: ${generatedAt()}")
             appendLine("App version: $appVersionName ($appVersionCode)")
             appendLine("Glasses status: ${uiState.glassesStatus}")
+            appendLine("Camera source: ${uiState.selectedCameraSource}")
             appendLine("Camera status: ${uiState.cameraStatus}")
             appendLine("Preview running: ${uiState.isPreviewRunning}")
             uiState.previewSize?.let { appendLine("Preview size: ${it.width}x${it.height}") }
             appendLine("Zoom factor: ${String.format(Locale.US, "%.2f", uiState.zoomFactor)}")
             appendLine("Record video enabled: ${uiState.recordVideoEnabled}")
+            appendLine("Gemma subtitles enabled: ${uiState.gemmaSubtitlesEnabled}")
+            appendLine("Gemma model: ${uiState.gemmaModelDisplayName ?: "not configured"}")
+            appendLine("Gemma model download in progress: ${uiState.isGemmaModelDownloadInProgress}")
+            uiState.gemmaModelDownloadProgressText?.let {
+                appendLine("Gemma model download status: $it")
+            }
             appendLine("Recording status: ${uiState.recordingStatus}")
             appendLine("Safe mode: ${uiState.isSafeMode}")
             uiState.safeModeReason?.let { appendLine("Safe mode reason: $it") }

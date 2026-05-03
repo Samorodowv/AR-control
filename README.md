@@ -18,6 +18,7 @@ The project does not use the XREAL Unity SDK. It uses:
 - Supports fit-center preview with black bars.
 - Supports preview zoom with hardware volume keys.
 - Optionally records preview sessions to MP4.
+- Optionally overlays Gemma-generated subtitles during fullscreen preview.
 - Persists a history of recorded clips.
 - Opens, shares, and deletes recorded clips.
 - Preserves diagnostics across crashes and can launch into a guarded recovery screen.
@@ -329,6 +330,14 @@ Real-device validation still needs `Huawei P60 Pro` + `XREAL One Pro`.
 7. Use fullscreen preview.
 8. Use back to stop preview.
 9. If `Record video` is enabled, the clip should finalize and appear in the grid.
+
+## Gemma subtitles
+
+`Gemma subtitles` downloads the public LiteRT-LM model
+`litert-community/gemma-4-E2B-it-litert-lm/gemma-4-E2B-it.litertlm` from Hugging Face
+into app-private storage. On a device, tap `Download Gemma model`, wait for the model
+status to show the configured file, enable `Gemma subtitles`, then start preview. Captions
+appear as a floating pill over fullscreen preview.
 
 ## Recording workflow
 

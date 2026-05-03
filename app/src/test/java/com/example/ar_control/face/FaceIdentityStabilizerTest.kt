@@ -99,6 +99,32 @@ class FaceIdentityStabilizerTest {
     }
 
     @Test
+    fun seedStableFace_allowsRememberedFaceToRemainStableOnNextMatch() {
+        val stabilizer = FaceIdentityStabilizer(requiredConsecutiveMatches = 2)
+
+        stabilizer.seedStableFace(bannedFace)
+
+        assertEquals(
+            bannedFace,
+            stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.93f))
+        )
+    }
+
+    @Test
+    fun seedStableFace_clearsPendingCandidateForDifferentFace() {
+        val stabilizer = FaceIdentityStabilizer(requiredConsecutiveMatches = 2)
+
+        assertNull(stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(approvedFace, 0.91f)))
+        stabilizer.seedStableFace(bannedFace)
+
+        assertEquals(
+            bannedFace,
+            stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.93f))
+        )
+        assertNull(stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(approvedFace, 0.94f)))
+    }
+
+    @Test
     fun init_rejectsNonPositiveRequiredConsecutiveMatches() {
         assertThrows(IllegalArgumentException::class.java) {
             FaceIdentityStabilizer(requiredConsecutiveMatches = 0)

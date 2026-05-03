@@ -13,6 +13,12 @@ class FaceIdentityStabilizer(
     private var candidateCount: Int = 0
     private var stableFaceId: String? = null
 
+    fun seedStableFace(face: RememberedFace) {
+        candidateFaceId = null
+        candidateCount = 0
+        stableFaceId = face.id
+    }
+
     fun decide(match: FaceEmbeddingMatcher.FaceMatch?): RememberedFace? {
         if (match == null) {
             candidateFaceId = null

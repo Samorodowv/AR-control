@@ -196,6 +196,7 @@ class MlKitFaceRecognizer(
                 val baseState = currentState
                 val result = enrollmentController.rememberCurrentFace(baseState, accessStatus)
                 if (result is FaceEnrollmentResult.Remembered) {
+                    identityStabilizer.seedStableFace(result.face)
                     val updatedState = baseState.copy(
                         matchedFace = result.face,
                         faceBoxes = baseState.faceBoxes.map { box ->

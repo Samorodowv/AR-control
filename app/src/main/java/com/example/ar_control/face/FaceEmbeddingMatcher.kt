@@ -10,23 +10,32 @@ class FaceEmbeddingMatcher(
         probe: FaceEmbedding,
         rememberedFaces: List<RememberedFace>
     ): FaceMatch? {
-        val ranked = rememberedFaces
-            .map { face ->
-                FaceMatch(
-                    face = face,
-                    similarity = cosineSimilarity(probe, face.embedding)
-                )
+        var bestFace: RememberedFace? = null
+        var bestSimilarity = Float.NEGATIVE_INFINITY
+        var secondBestSimilarity = Float.NEGATIVE_INFINITY
+
+        rememberedFaces.forEach { face ->
+            val similarity = cosineSimilarity(probe, face.embedding)
+            if (similarity > bestSimilarity) {
+                secondBestSimilarity = bestSimilarity
+                bestSimilarity = similarity
+                bestFace = face
+            } else if (similarity > secondBestSimilarity) {
+                secondBestSimilarity = similarity
             }
-            .sortedByDescending { match -> match.similarity }
-        val best = ranked.firstOrNull() ?: return null
-        if (best.similarity < matchThreshold) {
+        }
+
+        val face = bestFace ?: return null
+        if (bestSimilarity < matchThreshold) {
             return null
         }
-        val second = ranked.getOrNull(1)
-        if (second != null && best.similarity - second.similarity < minSimilarityMargin) {
+        if (
+            secondBestSimilarity != Float.NEGATIVE_INFINITY &&
+            bestSimilarity - secondBestSimilarity < minSimilarityMargin
+        ) {
             return null
         }
-        return best
+        return FaceMatch(face = face, similarity = bestSimilarity)
     }
 
     data class FaceMatch(

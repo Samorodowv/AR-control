@@ -32,6 +32,23 @@ class FaceFrameAdmissionGateTest {
     }
 
     @Test
+    fun shouldAccept_tracksAcceptedAndRejectedCounts() {
+        val gate = FaceFrameAdmissionGate(minimumFrameIntervalNanos = 250_000_000L)
+
+        assertTrue(gate.shouldAccept(0L))
+        assertEquals(1, gate.acceptedCount)
+        assertEquals(0, gate.rejectedCount)
+
+        assertFalse(gate.shouldAccept(100_000_000L))
+        assertEquals(1, gate.acceptedCount)
+        assertEquals(1, gate.rejectedCount)
+
+        assertTrue(gate.shouldAccept(250_000_000L))
+        assertEquals(2, gate.acceptedCount)
+        assertEquals(1, gate.rejectedCount)
+    }
+
+    @Test
     fun shouldAccept_withZeroIntervalAcceptsEveryTimestamp() {
         val gate = FaceFrameAdmissionGate(minimumFrameIntervalNanos = 0L)
 
@@ -70,6 +87,8 @@ class FaceFrameAdmissionGateTest {
         assertNull(rejectedResult)
         assertEquals(1, acceptedInvocations)
         assertEquals(0, rejectedInvocations)
+        assertEquals(1, gate.acceptedCount)
+        assertEquals(1, gate.rejectedCount)
     }
 
     @Test
@@ -83,6 +102,57 @@ class FaceFrameAdmissionGateTest {
 
             assertEquals(1, acceptedCount)
         }
+    }
+
+    @Test
+    fun diagnosticLogGate_reportsEveryCrossedThresholdWithoutDuplicates() {
+        val gate = FacePipelineDiagnosticLogGate(logEveryAcceptedFrames = 30L)
+
+        assertEquals(emptyList<Long>(), gate.crossedThresholds(0L))
+        assertEquals(emptyList<Long>(), gate.crossedThresholds(29L))
+        assertEquals(listOf(30L, 60L), gate.crossedThresholds(61L))
+        assertEquals(emptyList<Long>(), gate.crossedThresholds(61L))
+
+        val gateAfterThirty = FacePipelineDiagnosticLogGate(logEveryAcceptedFrames = 30L)
+
+        assertEquals(listOf(30L), gateAfterThirty.crossedThresholds(30L))
+        assertEquals(listOf(60L, 90L), gateAfterThirty.crossedThresholds(91L))
+        assertEquals(emptyList<Long>(), gateAfterThirty.crossedThresholds(91L))
+    }
+
+    @Test
+    fun faceRecognitionFailureState_clearsRecognitionPayloadAndKeepsFrameCounts() {
+        val state = faceRecognitionFailureState(
+            acceptedFrameCount = 7L,
+            rejectedFrameCount = 5L
+        )
+
+        assertTrue(state.modelReady)
+        assertEquals(0, state.faceCount)
+        assertNull(state.bestFaceEmbedding)
+        assertNull(state.matchedFace)
+        assertEquals(emptyList<FaceBoundingBox>(), state.faceBoxes)
+        assertEquals(FaceRecognitionStatus.NoFace, state.status)
+        assertEquals(0L, state.lastDetectionMillis)
+        assertEquals(0L, state.lastEmbeddingMillis)
+        assertEquals(7L, state.acceptedFrameCount)
+        assertEquals(5L, state.rejectedFrameCount)
+    }
+
+    @Test
+    fun faceStatePublicationGate_skipsOlderTokensAfterNewerPublication() {
+        val gate = FaceStatePublicationGate()
+        val emittedTokens = mutableListOf<Long>()
+
+        assertFalse(gate.emitIfCurrent(0L) { emittedTokens += 0L })
+        val firstToken = gate.nextToken()
+        assertTrue(gate.emitIfCurrent(firstToken) { emittedTokens += firstToken })
+
+        val secondToken = gate.nextToken()
+
+        assertFalse(gate.emitIfCurrent(firstToken) { emittedTokens += firstToken })
+        assertTrue(gate.emitIfCurrent(secondToken) { emittedTokens += secondToken })
+        assertEquals(listOf(firstToken, secondToken), emittedTokens)
     }
 
     private fun countConcurrentAcceptances(

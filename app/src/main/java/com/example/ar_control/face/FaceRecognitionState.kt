@@ -8,7 +8,11 @@ data class FaceRecognitionState(
     val bestFaceEmbedding: FaceEmbedding? = null,
     val matchedFace: RememberedFace? = null,
     val faceBoxes: List<FaceBoundingBox> = emptyList(),
-    val status: FaceRecognitionStatus = FaceRecognitionStatus.ModelMissing
+    val status: FaceRecognitionStatus = FaceRecognitionStatus.ModelMissing,
+    val lastDetectionMillis: Long = 0L,
+    val lastEmbeddingMillis: Long = 0L,
+    val acceptedFrameCount: Long = 0L,
+    val rejectedFrameCount: Long = 0L
 )
 
 data class FaceBoundingBox(

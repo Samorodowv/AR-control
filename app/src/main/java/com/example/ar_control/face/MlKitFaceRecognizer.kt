@@ -88,6 +88,7 @@ class MlKitFaceRecognizer(
         private val enrollmentController = FaceEnrollmentController(embeddingStore)
         private val faceBoxFilter = FaceBoxFilter()
         private val faceBoxStabilizer = FaceBoxStabilizer()
+        private val identityStabilizer = FaceIdentityStabilizer()
         private val detector: FaceDetector = FaceDetection.getClient(
             FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
@@ -216,10 +217,14 @@ class MlKitFaceRecognizer(
                 val stableBoxes = faceBoxStabilizer.update(
                     acceptedCandidates.map { (_, box) -> box }
                 )
-                val nextState = preEmbeddingFaceRecognitionState(
+                val preEmbeddingState = preEmbeddingFaceRecognitionState(
                     acceptedCandidateCount = acceptedCandidates.size,
                     stableBoxes = stableBoxes
-                ) ?: run {
+                )
+                if (preEmbeddingState != null) {
+                    identityStabilizer.decide(null)
+                }
+                val nextState = preEmbeddingState ?: run {
                     val face = acceptedCandidates.single().first
                     val stableBox = stableBoxes.single()
                     val bitmap = bitmapFromNv21(nv21, previewSize)
@@ -227,15 +232,16 @@ class MlKitFaceRecognizer(
                     try {
                         val embedding = model.embed(faceBitmap)
                         val match = matcher.findBestMatch(embedding, embeddingStore.loadAll())
+                        val stableFace = identityStabilizer.decide(match)
                         FaceRecognitionState(
                             modelReady = true,
                             faceCount = 1,
                             bestFaceEmbedding = embedding,
-                            matchedFace = match?.face,
+                            matchedFace = stableFace,
                             faceBoxes = listOf(
-                                stableBox.copy(accessStatus = match?.face?.accessStatus)
+                                stableBox.copy(accessStatus = stableFace?.accessStatus)
                             ),
-                            status = if (match == null) {
+                            status = if (stableFace == null) {
                                 FaceRecognitionStatus.UnknownFace
                             } else {
                                 FaceRecognitionStatus.RememberedFace
@@ -251,6 +257,7 @@ class MlKitFaceRecognizer(
                     onStateUpdated(nextState)
                 }
             }.onFailure { error ->
+                identityStabilizer.decide(null)
                 sessionLog.record(TAG, "Face recognition frame failed: ${error.message ?: error::class.java.simpleName}")
             }
         }

@@ -3,17 +3,20 @@ package com.example.ar_control.ui.preview
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.example.ar_control.camera.CameraSource
+import com.example.ar_control.camera.CameraSourceKind
+import com.example.ar_control.camera.CameraSourcePreferences
 import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.detection.DetectionPreferences
 import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.gemma.DEFAULT_GEMMA_CAPTION_PROMPT
 import com.example.ar_control.gemma.GemmaCaptionSession
 import com.example.ar_control.gemma.GemmaFrameCaptioner
 import com.example.ar_control.gemma.GemmaModelDownloadProgress
-import com.example.ar_control.gemma.GemmaModelDownloadResult
-import com.example.ar_control.gemma.GemmaModelDownloader
+import com.example.ar_control.gemma.GemmaModelDownloadScheduler
+import com.example.ar_control.gemma.GemmaModelDownloadWorkState
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.gemma.NoOpGemmaFrameCaptioner
 import com.example.ar_control.recording.ClipRepository
@@ -47,6 +50,8 @@ class PreviewViewModel(
     private val eyeUsbConfigurator: EyeUsbConfigurator,
     private val usbPermissionGateway: UsbPermissionGateway,
     private val cameraSource: CameraSource,
+    private val androidCameraSource: CameraSource = cameraSource,
+    private val cameraSourcePreferences: CameraSourcePreferences = NoOpCameraSourcePreferences,
     private val recordingPreferences: RecordingPreferences,
     private val detectionPreferences: DetectionPreferences = object : DetectionPreferences {
         override fun isObjectDetectionEnabled(): Boolean = false
@@ -56,7 +61,7 @@ class PreviewViewModel(
     private val objectDetector: ObjectDetector = NoOpObjectDetector,
     private val detectionAnnotationSink: DetectionAnnotationSink = NoOpDetectionAnnotationSink,
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
-    private val gemmaModelDownloader: GemmaModelDownloader? = null,
+    private val gemmaModelDownloadScheduler: GemmaModelDownloadScheduler? = null,
     private val gemmaFrameCaptioner: GemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
@@ -78,12 +83,14 @@ class PreviewViewModel(
     private var activeDetectionSession: ObjectDetectionSession? = null
     private var activeGemmaCaptionSession: GemmaCaptionSession? = null
     private var hasActiveFrameCallbackCapture = false
+    private var activePreviewCameraSource: CameraSource? = null
 
     init {
         applyRecoverySnapshot(recoveryManager.snapshot())
         loadInitialRecordingState()
         startGlassesSession()
         observeGlassesState()
+        observeGemmaModelDownloadState()
     }
 
     fun enableCamera() {
@@ -93,6 +100,11 @@ class PreviewViewModel(
                 return@launch
             }
             if (!_uiState.value.canEnableCamera) {
+                return@launch
+            }
+            if (_uiState.value.selectedCameraSource == CameraSourceKind.ANDROID) {
+                sessionLog.record("PreviewViewModel", "Enable camera skipped for Android camera source")
+                _uiState.value = androidCameraReadyState()
                 return@launch
             }
             sessionLog.record("PreviewViewModel", "Enable camera tapped")
@@ -110,13 +122,13 @@ class PreviewViewModel(
             }
             if (hasPermission == null) {
                 sessionLog.record("PreviewViewModel", "Control USB permission request timed out")
-                _uiState.value = idleCameraState(errorMessage = "USB permission request timed out")
+                _uiState.value = idleCameraState(errorMessage = "Запрос USB-разрешения истек")
                 return@launch
             }
 
             if (!hasPermission) {
                 sessionLog.record("PreviewViewModel", "Control USB permission denied")
-                _uiState.value = idleCameraState(errorMessage = "USB permission denied")
+                _uiState.value = idleCameraState(errorMessage = "USB-разрешение отклонено")
                 return@launch
             }
             sessionLog.record("PreviewViewModel", "Control USB permission granted")
@@ -155,15 +167,17 @@ class PreviewViewModel(
                 recordingStatus = RecordingStatus.Idle
             ))
 
-            when (val result = cameraSource.start(surfaceToken)) {
+            val selectedSource = selectedCameraSource()
+            when (val result = selectedSource.start(surfaceToken)) {
                 is CameraSource.StartResult.Started -> {
                     if (!isCurrentPreviewGeneration(generation)) {
                         sessionLog.record("PreviewViewModel", "Preview start finished after stop; ignoring stale session")
-                        runCatching { cameraSource.stop() }
+                        runCatching { selectedSource.stop() }
                         return@launch
                     }
                     sessionLog.record("PreviewViewModel", "Preview started successfully")
                     recoveryManager.markPreviewStarted()
+                    activePreviewCameraSource = selectedSource
                     _uiState.value = previewRunningState(result.previewSize)
                     maybeStartFramePipeline(result.previewSize, generation)
                 }
@@ -174,7 +188,7 @@ class PreviewViewModel(
                         return@launch
                     }
                     sessionLog.record("PreviewViewModel", "Preview start failed: ${result.reason}")
-                    _uiState.value = enabledCameraState(errorMessage = result.reason)
+                    _uiState.value = cameraSourceReadyState(errorMessage = result.reason)
                 }
             }
         }
@@ -226,50 +240,104 @@ class PreviewViewModel(
         _uiState.value = applyRecoveryState(_uiState.value.copy(gemmaSubtitlesEnabled = enabled))
     }
 
-    fun downloadGemmaModel() {
-        val downloader = gemmaModelDownloader ?: return
-        if (_uiState.value.isGemmaModelDownloadInProgress) {
+    fun setGemmaPrompt(prompt: String) {
+        val storedPrompt = prompt.ifBlank { DEFAULT_GEMMA_CAPTION_PROMPT }
+        gemmaSubtitlePreferences.setCaptionPrompt(storedPrompt)
+        _uiState.value = applyRecoveryState(_uiState.value.copy(gemmaPrompt = storedPrompt))
+    }
+
+    fun setCameraSource(source: CameraSourceKind) {
+        if (recoverySnapshot.isSafeMode) {
+            sessionLog.record("PreviewViewModel", "Camera source change ignored because safe mode is active")
             return
         }
+        val currentState = _uiState.value
+        if (!currentState.canChangeCameraSource || currentState.isPreviewRunning) {
+            sessionLog.record("PreviewViewModel", "Camera source change ignored while preview is active")
+            return
+        }
+        cameraSourcePreferences.setSelectedCameraSource(source)
+        sessionLog.record("PreviewViewModel", "Camera source changed: $source")
+        _uiState.value = cameraSourceBaseState(source).copy(
+            recordVideoEnabled = currentState.recordVideoEnabled,
+            objectDetectionEnabled = currentState.objectDetectionEnabled,
+            gemmaSubtitlesEnabled = currentState.gemmaSubtitlesEnabled,
+            gemmaModelDisplayName = currentState.gemmaModelDisplayName,
+            gemmaPrompt = currentState.gemmaPrompt,
+            recordedClips = currentState.recordedClips,
+            selectedClipId = currentState.selectedClipId,
+            errorMessage = null
+        )
+    }
+
+    fun downloadGemmaModel() {
+        val scheduler = gemmaModelDownloadScheduler ?: return
+        if (_uiState.value.isGemmaModelDownloadInProgress) {
+            sessionLog.record("PreviewViewModel", "Gemma model download cancellation requested")
+            scheduler.cancelDownload()
+            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                isGemmaModelDownloadInProgress = false,
+                gemmaModelDownloadProgressText = null,
+                errorMessage = null
+            ))
+            return
+        }
+        sessionLog.record("PreviewViewModel", "Gemma model download requested")
         _uiState.value = applyRecoveryState(_uiState.value.copy(
             isGemmaModelDownloadInProgress = true,
             gemmaModelDownloadProgressText = GEMMA_MODEL_DOWNLOADING,
             errorMessage = null
         ))
-        viewModelScope.launch {
-            sessionLog.record("PreviewViewModel", "Gemma model download started")
-            when (val result = downloader.downloadModel(::onGemmaModelDownloadProgress)) {
-                is GemmaModelDownloadResult.Downloaded -> {
-                    sessionLog.record("PreviewViewModel", "Gemma model download finished: ${result.displayName}")
-                    _uiState.value = applyRecoveryState(_uiState.value.copy(
-                        isGemmaModelDownloadInProgress = false,
-                        gemmaModelDownloadProgressText = null,
-                        gemmaModelDisplayName = result.displayName,
-                        errorMessage = null
-                    ))
-                }
+        scheduler.enqueueDownload()
+    }
 
-                is GemmaModelDownloadResult.Failed -> {
-                    sessionLog.record("PreviewViewModel", "Gemma model download failed: ${result.reason}")
-                    _uiState.value = applyRecoveryState(_uiState.value.copy(
-                        isGemmaModelDownloadInProgress = false,
-                        gemmaModelDownloadProgressText = null,
-                        errorMessage = result.reason
-                    ))
-                }
+    private fun observeGemmaModelDownloadState() {
+        val scheduler = gemmaModelDownloadScheduler ?: return
+        viewModelScope.launch {
+            scheduler.downloadState.collectLatest { state ->
+                applyGemmaModelDownloadState(state)
             }
         }
     }
 
-    private fun onGemmaModelDownloadProgress(progress: GemmaModelDownloadProgress) {
-        val nextStatusText = progress.toStatusText()
-        val currentState = _uiState.value
-        if (currentState.gemmaModelDownloadProgressText == nextStatusText) {
-            return
+    private fun applyGemmaModelDownloadState(state: GemmaModelDownloadWorkState) {
+        when (state) {
+            GemmaModelDownloadWorkState.Idle -> {
+                if (_uiState.value.isGemmaModelDownloadInProgress) {
+                    _uiState.value = applyRecoveryState(_uiState.value.copy(
+                        isGemmaModelDownloadInProgress = false,
+                        gemmaModelDownloadProgressText = null
+                    ))
+                }
+            }
+
+            is GemmaModelDownloadWorkState.Running -> {
+                _uiState.value = applyRecoveryState(_uiState.value.copy(
+                    isGemmaModelDownloadInProgress = true,
+                    gemmaModelDownloadProgressText = state.progress?.toStatusText() ?: GEMMA_MODEL_DOWNLOADING,
+                    errorMessage = null
+                ))
+            }
+
+            is GemmaModelDownloadWorkState.Completed -> {
+                sessionLog.record("PreviewViewModel", "Gemma model download finished: ${state.displayName}")
+                _uiState.value = applyRecoveryState(_uiState.value.copy(
+                    isGemmaModelDownloadInProgress = false,
+                    gemmaModelDownloadProgressText = null,
+                    gemmaModelDisplayName = state.displayName ?: gemmaSubtitlePreferences.getModelDisplayName(),
+                    errorMessage = null
+                ))
+            }
+
+            is GemmaModelDownloadWorkState.Failed -> {
+                sessionLog.record("PreviewViewModel", "Gemma model download failed: ${state.reason}")
+                _uiState.value = applyRecoveryState(_uiState.value.copy(
+                    isGemmaModelDownloadInProgress = false,
+                    gemmaModelDownloadProgressText = null,
+                    errorMessage = state.reason
+                ))
+            }
         }
-        _uiState.value = applyRecoveryState(currentState.copy(
-            gemmaModelDownloadProgressText = nextStatusText
-        ))
     }
 
     private fun GemmaModelDownloadProgress.toStatusText(): String {
@@ -278,27 +346,24 @@ class PreviewViewModel(
             return GEMMA_MODEL_DOWNLOADING
         }
         val percent = ((bytesDownloaded * 100L) / total).coerceIn(0L, 100L)
-        return "Gemma model: downloading $percent%"
+        return "Модель Gemma: загрузка $percent%"
     }
 
     fun confirmSafeModeExit() {
         viewModelScope.launch {
             sessionLog.record("PreviewViewModel", "Safe mode exit confirmed by user")
             recoveryManager.clearSafeMode()
+            val selectedSource = cameraSourcePreferences.getSelectedCameraSource()
             applyRecoverySnapshot(
                 recoveryManager.snapshot(),
-                _uiState.value.copy(
-                    cameraStatus = "Camera: idle",
-                    canEnableCamera = true,
-                    canStartPreview = false,
-                    canStopPreview = false,
-                    isPreviewRunning = false,
-                    previewSize = null,
-                    zoomFactor = minZoomFactor,
+                cameraSourceBaseState(selectedSource).copy(
                     recordVideoEnabled = recordingPreferences.isRecordingEnabled(),
                     objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled(),
                     gemmaSubtitlesEnabled = gemmaSubtitlePreferences.isGemmaSubtitlesEnabled(),
                     gemmaModelDisplayName = gemmaSubtitlePreferences.getModelDisplayName(),
+                    gemmaPrompt = gemmaSubtitlePreferences.getCaptionPrompt(),
+                    recordedClips = _uiState.value.recordedClips,
+                    selectedClipId = _uiState.value.selectedClipId,
                     gemmaSubtitleText = "",
                     recordingStatus = RecordingStatus.Idle,
                     errorMessage = null
@@ -354,7 +419,7 @@ class PreviewViewModel(
 
     fun onPreviewStartBlocked(reason: String) {
         sessionLog.record("PreviewViewModel", "Preview start blocked: $reason")
-        _uiState.value = enabledCameraState(errorMessage = reason)
+        _uiState.value = cameraSourceReadyState(errorMessage = reason)
     }
 
     fun onEnableCameraBlocked(reason: String) {
@@ -367,9 +432,9 @@ class PreviewViewModel(
             sessionLog.record("PreviewViewModel", "Clearing preview resources")
             runCatching { activeDetectionSession?.close() }
             runCatching { closeGemmaCaptionSession(clearSubtitle = true) }
-            runCatching { cameraSource.stopRecording() }
+            runCatching { activeCameraSource().stopRecording() }
             runCatching { videoRecorder.cancel() }
-            runCatching { cameraSource.stop() }
+            runCatching { stopCameraSources() }
             runCatching { glassesSession.stop() }
             runCatching { recoveryManager.markCameraIdle() }
         }
@@ -381,11 +446,14 @@ class PreviewViewModel(
         val objectDetectionEnabled = detectionPreferences.isObjectDetectionEnabled()
         val gemmaSubtitlesEnabled = gemmaSubtitlePreferences.isGemmaSubtitlesEnabled()
         val gemmaModelDisplayName = gemmaSubtitlePreferences.getModelDisplayName()
-        _uiState.value = applyRecoveryState(_uiState.value.copy(
+        val gemmaPrompt = gemmaSubtitlePreferences.getCaptionPrompt()
+        val selectedSource = cameraSourcePreferences.getSelectedCameraSource()
+        _uiState.value = applyRecoveryState(cameraSourceBaseState(selectedSource).copy(
             recordVideoEnabled = recordVideoEnabled,
             objectDetectionEnabled = objectDetectionEnabled,
             gemmaSubtitlesEnabled = gemmaSubtitlesEnabled,
-            gemmaModelDisplayName = gemmaModelDisplayName
+            gemmaModelDisplayName = gemmaModelDisplayName,
+            gemmaPrompt = gemmaPrompt
         ))
 
         viewModelScope.launch {
@@ -505,8 +573,11 @@ class PreviewViewModel(
                             isCurrentPreviewGeneration(generation) &&
                             activeGemmaCaptionSession === startedGemmaCaptionSession
                         ) {
-                            closeGemmaCaptionSession(clearSubtitle = true)
-                            _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = reason))
+                            closeGemmaCaptionSession(clearSubtitle = false)
+                            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                                errorMessage = reason,
+                                gemmaSubtitleText = gemmaUnavailableSubtitle(reason)
+                            ))
                         }
                     }
                 }
@@ -586,7 +657,7 @@ class PreviewViewModel(
                     CameraSource.RecordingStartResult.Started -> {
                         if (!isCurrentPreviewGeneration(generation)) {
                             sessionLog.record("PreviewViewModel", "Capture started after preview stop; cancelling stale session")
-                            runCatching { cameraSource.stopRecording() }
+                            runCatching { activeCameraSource().stopRecording() }
                             hasActiveFrameCallbackCapture = false
                             closeDetectionSession(clearDetections = true)
                             closeGemmaCaptionSession(clearSubtitle = true)
@@ -729,10 +800,11 @@ class PreviewViewModel(
         closeGemmaCaptionSession(clearSubtitle = true)
 
         sessionLog.record("PreviewViewModel", "Stopping camera preview source")
-        cameraSource.stop()
+        activeCameraSource().stop()
+        activePreviewCameraSource = null
         recoveryManager.markCameraIdle()
         sessionLog.record("PreviewViewModel", "Camera preview source stopped")
-        _uiState.value = enabledCameraState(
+        _uiState.value = cameraSourceReadyState(
             errorMessage = nextErrorMessage,
             recordingStatus = nextRecordingStatus
         )
@@ -831,7 +903,8 @@ class PreviewViewModel(
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = false,
                 canChangeObjectDetection = false,
-                canChangeGemmaSubtitles = false
+                canChangeGemmaSubtitles = false,
+                canChangeCameraSource = false
             )
         } else {
             baseState.copy(
@@ -840,16 +913,17 @@ class PreviewViewModel(
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = true,
                 canChangeObjectDetection = true,
-                canChangeGemmaSubtitles = true
+                canChangeGemmaSubtitles = true,
+                canChangeCameraSource = !baseState.isPreviewRunning
             )
         }
     }
 
     private fun GlassesSession.State.toStatusLabel(): String {
         return when (this) {
-            GlassesSession.State.Unavailable -> "Glasses: unavailable"
-            GlassesSession.State.Connecting -> "Glasses: connecting"
-            GlassesSession.State.Available -> "Glasses: available"
+            GlassesSession.State.Unavailable -> "Очки: недоступны"
+            GlassesSession.State.Connecting -> "Очки: подключение"
+            GlassesSession.State.Available -> "Очки: доступны"
         }
     }
 
@@ -857,8 +931,33 @@ class PreviewViewModel(
         errorMessage: String? = null,
         recordingStatus: RecordingStatus = RecordingStatus.Idle
     ): PreviewUiState {
+        return xrealCameraReadyState(errorMessage, recordingStatus)
+    }
+
+    private fun idleCameraState(
+        errorMessage: String? = null,
+        recordingStatus: RecordingStatus = RecordingStatus.Idle
+    ): PreviewUiState {
+        return xrealCameraIdleState(errorMessage, recordingStatus)
+    }
+
+    private fun cameraSourceReadyState(
+        errorMessage: String? = null,
+        recordingStatus: RecordingStatus = RecordingStatus.Idle
+    ): PreviewUiState {
+        return when (_uiState.value.selectedCameraSource) {
+            CameraSourceKind.XREAL -> xrealCameraReadyState(errorMessage, recordingStatus)
+            CameraSourceKind.ANDROID -> androidCameraReadyState(errorMessage, recordingStatus)
+        }
+    }
+
+    private fun xrealCameraReadyState(
+        errorMessage: String? = null,
+        recordingStatus: RecordingStatus = RecordingStatus.Idle
+    ): PreviewUiState {
         return applyRecoveryState(_uiState.value.copy(
-            cameraStatus = "Camera enabled",
+            selectedCameraSource = CameraSourceKind.XREAL,
+            cameraStatus = "Камера включена",
             canEnableCamera = false,
             canStartPreview = true,
             canStopPreview = false,
@@ -871,12 +970,13 @@ class PreviewViewModel(
         ))
     }
 
-    private fun idleCameraState(
+    private fun xrealCameraIdleState(
         errorMessage: String? = null,
         recordingStatus: RecordingStatus = RecordingStatus.Idle
     ): PreviewUiState {
         return applyRecoveryState(_uiState.value.copy(
-            cameraStatus = "Camera: idle",
+            selectedCameraSource = CameraSourceKind.XREAL,
+            cameraStatus = "Камера: ожидание",
             canEnableCamera = true,
             canStartPreview = false,
             canStopPreview = false,
@@ -889,9 +989,61 @@ class PreviewViewModel(
         ))
     }
 
+    private fun androidCameraReadyState(
+        errorMessage: String? = null,
+        recordingStatus: RecordingStatus = RecordingStatus.Idle
+    ): PreviewUiState {
+        return applyRecoveryState(_uiState.value.copy(
+            selectedCameraSource = CameraSourceKind.ANDROID,
+            cameraStatus = "Камера телефона готова",
+            canEnableCamera = false,
+            canStartPreview = true,
+            canStopPreview = false,
+            isPreviewRunning = false,
+            previewSize = null,
+            zoomFactor = minZoomFactor,
+            recordingStatus = recordingStatus,
+            detectedObjects = emptyList(),
+            errorMessage = errorMessage
+        ))
+    }
+
+    private fun cameraSourceBaseState(source: CameraSourceKind): PreviewUiState {
+        return when (source) {
+            CameraSourceKind.XREAL -> _uiState.value.copy(
+                selectedCameraSource = CameraSourceKind.XREAL,
+                cameraStatus = "Камера: ожидание",
+                canEnableCamera = true,
+                canStartPreview = false,
+                canStopPreview = false,
+                isPreviewRunning = false,
+                previewSize = null,
+                zoomFactor = minZoomFactor,
+                recordingStatus = RecordingStatus.Idle,
+                detectedObjects = emptyList(),
+                gemmaSubtitleText = "",
+                errorMessage = null
+            )
+            CameraSourceKind.ANDROID -> _uiState.value.copy(
+                selectedCameraSource = CameraSourceKind.ANDROID,
+                cameraStatus = "Камера телефона готова",
+                canEnableCamera = false,
+                canStartPreview = true,
+                canStopPreview = false,
+                isPreviewRunning = false,
+                previewSize = null,
+                zoomFactor = minZoomFactor,
+                recordingStatus = RecordingStatus.Idle,
+                detectedObjects = emptyList(),
+                gemmaSubtitleText = "",
+                errorMessage = null
+            )
+        }
+    }
+
     private fun previewRunningState(previewSize: PreviewSize): PreviewUiState {
         return applyRecoveryState(_uiState.value.copy(
-            cameraStatus = "Preview running",
+            cameraStatus = "Просмотр запущен",
             canEnableCamera = false,
             canStartPreview = false,
             canStopPreview = true,
@@ -904,12 +1056,31 @@ class PreviewViewModel(
         ))
     }
 
+    private fun selectedCameraSource(): CameraSource {
+        return when (_uiState.value.selectedCameraSource) {
+            CameraSourceKind.XREAL -> cameraSource
+            CameraSourceKind.ANDROID -> androidCameraSource
+        }
+    }
+
+    private fun activeCameraSource(): CameraSource {
+        return activePreviewCameraSource ?: selectedCameraSource()
+    }
+
+    private suspend fun stopCameraSources() {
+        cameraSource.stop()
+        if (androidCameraSource !== cameraSource) {
+            androidCameraSource.stop()
+        }
+        activePreviewCameraSource = null
+    }
+
     private suspend fun startFrameCallbackCapture(
         target: RecordingInputTarget,
         generation: Long,
         onFailure: ((String) -> Unit)? = null
     ): CameraSource.RecordingStartResult {
-        val result = cameraSource.startRecording(target)
+        val result = activeCameraSource().startRecording(target)
         return when (result) {
             CameraSource.RecordingStartResult.Started -> {
                 if (isCurrentPreviewGeneration(generation)) {
@@ -930,7 +1101,7 @@ class PreviewViewModel(
             return Result.success(Unit)
         }
         return runCatching {
-            cameraSource.stopRecording()
+            activeCameraSource().stopRecording()
             hasActiveFrameCallbackCapture = false
         }
     }
@@ -980,8 +1151,8 @@ class PreviewViewModel(
 
     private companion object {
         const val RECORDING_NOT_STARTED = "recording_not_started"
-        const val GEMMA_MODEL_NOT_CONFIGURED = "Gemma model is not configured"
-        const val GEMMA_MODEL_DOWNLOADING = "Gemma model: downloading..."
+        const val GEMMA_MODEL_NOT_CONFIGURED = "Модель Gemma не настроена"
+        const val GEMMA_MODEL_DOWNLOADING = "Модель Gemma: загрузка..."
     }
 }
 
@@ -994,7 +1165,38 @@ internal object NoOpGemmaSubtitlePreferences : GemmaSubtitlePreferences {
 
     override fun getModelDisplayName(): String? = null
 
+    override fun getCaptionPrompt(): String = DEFAULT_GEMMA_CAPTION_PROMPT
+
+    override fun setCaptionPrompt(prompt: String) = Unit
+
     override fun setModel(path: String, displayName: String?) = Unit
 
     override fun clearModel() = Unit
 }
+
+internal object NoOpCameraSourcePreferences : CameraSourcePreferences {
+    override fun getSelectedCameraSource(): CameraSourceKind = CameraSourceKind.XREAL
+
+    override fun setSelectedCameraSource(source: CameraSourceKind) = Unit
+}
+
+internal fun gemmaUnavailableSubtitle(reason: String): String {
+    val firstLine = reason.lineSequence()
+        .firstOrNull()
+        ?.trim()
+        .orEmpty()
+    if (firstLine.isBlank()) {
+        return GEMMA_UNAVAILABLE
+    }
+    val shortReason = when {
+        firstLine.startsWith("Failed to create engine", ignoreCase = true) -> "не удалось создать движок"
+        firstLine.length > GEMMA_UNAVAILABLE_REASON_MAX_LENGTH -> {
+            firstLine.take(GEMMA_UNAVAILABLE_REASON_MAX_LENGTH - 3).trimEnd() + "..."
+        }
+        else -> firstLine.replaceFirstChar { character -> character.lowercase() }
+    }
+    return "$GEMMA_UNAVAILABLE: $shortReason"
+}
+
+private const val GEMMA_UNAVAILABLE = "Gemma недоступна"
+private const val GEMMA_UNAVAILABLE_REASON_MAX_LENGTH = 64

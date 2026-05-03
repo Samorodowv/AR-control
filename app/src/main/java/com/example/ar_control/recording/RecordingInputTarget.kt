@@ -17,6 +17,7 @@ sealed interface RecordingInputTarget {
 
     data class FrameCallbackTarget(
         val pixelFormat: VideoFramePixelFormat,
+        val minimumFrameIntervalNanos: Long = 0L,
         val frameConsumer: VideoFrameConsumer
     ) : RecordingInputTarget
 }
@@ -35,6 +36,7 @@ object FrameCallbackTargetFanOut {
         }
         return RecordingInputTarget.FrameCallbackTarget(
             pixelFormat = pixelFormat,
+            minimumFrameIntervalNanos = targets.minOf { target -> target.minimumFrameIntervalNanos },
             frameConsumer = VideoFrameConsumer { frame, timestampNanos ->
                 for (target in targets) {
                     target.frameConsumer.onFrame(frame.asReadOnlyBuffer(), timestampNanos)

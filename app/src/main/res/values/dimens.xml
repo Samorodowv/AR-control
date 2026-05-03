@@ -9,9 +9,10 @@
     <dimen name="preview_status_margin_top">16dp</dimen>
     <dimen name="preview_status_padding_horizontal">12dp</dimen>
     <dimen name="preview_status_padding_vertical">6dp</dimen>
-    <dimen name="gemma_subtitle_margin_bottom">40dp</dimen>
-    <dimen name="gemma_subtitle_padding_horizontal">18dp</dimen>
-    <dimen name="gemma_subtitle_padding_vertical">10dp</dimen>
+    <dimen name="gemma_subtitle_margin_bottom">72dp</dimen>
+    <dimen name="gemma_subtitle_padding_horizontal">26dp</dimen>
+    <dimen name="gemma_subtitle_padding_vertical">16dp</dimen>
+    <dimen name="gemma_subtitle_text_size">16sp</dimen>
     <dimen name="preview_back_button_size">40dp</dimen>
     <dimen name="preview_back_button_margin">16dp</dimen>
     <dimen name="preview_back_button_padding">8dp</dimen>

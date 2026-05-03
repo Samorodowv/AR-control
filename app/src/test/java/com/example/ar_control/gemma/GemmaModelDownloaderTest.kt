@@ -489,11 +489,18 @@ private class FakeGemmaSubtitlePreferences : GemmaSubtitlePreferences {
     private var enabled = false
     private var modelPath: String? = null
     private var modelDisplayName: String? = null
+    private var captionPrompt: String = DEFAULT_GEMMA_CAPTION_PROMPT
 
     override fun isGemmaSubtitlesEnabled(): Boolean = enabled
 
     override fun setGemmaSubtitlesEnabled(enabled: Boolean) {
         this.enabled = enabled
+    }
+
+    override fun getCaptionPrompt(): String = captionPrompt
+
+    override fun setCaptionPrompt(prompt: String) {
+        captionPrompt = prompt
     }
 
     override fun getModelPath(): String? = modelPath

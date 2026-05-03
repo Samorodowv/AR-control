@@ -3,8 +3,12 @@ package com.example.ar_control.di
 import android.app.Application
 import android.hardware.usb.UsbManager
 import android.os.Environment
+import androidx.work.WorkManager
+import com.example.ar_control.camera.AndroidCameraSource
 import com.example.ar_control.camera.AndroidUvcLibraryAdapter
 import com.example.ar_control.camera.CameraSource
+import com.example.ar_control.camera.CameraSourcePreferences
+import com.example.ar_control.camera.SharedPreferencesCameraSourcePreferences
 import com.example.ar_control.camera.UvcCameraSource
 import com.example.ar_control.detection.DetectionPreferences
 import com.example.ar_control.detection.LiteRtYoloObjectDetector
@@ -15,10 +19,11 @@ import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.PersistentSessionLog
 import com.example.ar_control.diagnostics.SessionLog
 import com.example.ar_control.gemma.GemmaFrameCaptioner
-import com.example.ar_control.gemma.GemmaModelDownloader
+import com.example.ar_control.gemma.GemmaModelDownloadScheduler
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
 import com.example.ar_control.gemma.LiteRtGemmaFrameCaptioner
 import com.example.ar_control.gemma.SharedPreferencesGemmaSubtitlePreferences
+import com.example.ar_control.gemma.WorkManagerGemmaModelDownloadScheduler
 import com.example.ar_control.recording.AndroidClipFileSharer
 import com.example.ar_control.recording.ClipFileSharer
 import com.example.ar_control.recording.ClipRepository
@@ -108,6 +113,13 @@ class DefaultAppContainer(
         )
     }
 
+    private val androidCameraSource: CameraSource by lazy {
+        AndroidCameraSource(
+            context = appContext,
+            sessionLog = sessionLog
+        )
+    }
+
     private val recordingsDirectory: File by lazy {
         File(
             checkNotNull(appContext.getExternalFilesDir(Environment.DIRECTORY_MOVIES)),
@@ -119,6 +131,10 @@ class DefaultAppContainer(
         SharedPreferencesRecordingPreferences(appContext)
     }
 
+    private val cameraSourcePreferences: CameraSourcePreferences by lazy {
+        SharedPreferencesCameraSourcePreferences(appContext)
+    }
+
     private val detectionPreferences: DetectionPreferences by lazy {
         SharedPreferencesDetectionPreferences(appContext)
     }
@@ -127,16 +143,16 @@ class DefaultAppContainer(
         SharedPreferencesGemmaSubtitlePreferences(appContext)
     }
 
-    private val gemmaModelDownloader: GemmaModelDownloader by lazy {
-        GemmaModelDownloader(
-            context = appContext,
-            preferences = gemmaSubtitlePreferences
+    private val gemmaModelDownloadScheduler: GemmaModelDownloadScheduler by lazy {
+        WorkManagerGemmaModelDownloadScheduler(
+            workManager = WorkManager.getInstance(appContext)
         )
     }
 
     private val gemmaFrameCaptioner: GemmaFrameCaptioner by lazy {
         LiteRtGemmaFrameCaptioner(
             context = appContext,
+            captionPromptProvider = gemmaSubtitlePreferences::getCaptionPrompt,
             sessionLog = sessionLog
         )
     }
@@ -186,12 +202,14 @@ class DefaultAppContainer(
             eyeUsbConfigurator = eyeUsbConfigurator,
             usbPermissionGateway = usbPermissionGateway,
             cameraSource = cameraSource,
+            androidCameraSource = androidCameraSource,
+            cameraSourcePreferences = cameraSourcePreferences,
             recordingPreferences = recordingPreferences,
             detectionPreferences = detectionPreferences,
             objectDetector = objectDetector,
             detectionAnnotationSink = detectionAnnotationSink,
             gemmaSubtitlePreferences = gemmaSubtitlePreferences,
-            gemmaModelDownloader = gemmaModelDownloader,
+            gemmaModelDownloadScheduler = gemmaModelDownloadScheduler,
             gemmaFrameCaptioner = gemmaFrameCaptioner,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,

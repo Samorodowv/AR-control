@@ -7,11 +7,14 @@ import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.graphics.SurfaceTexture
 import android.os.Bundle
+import android.text.Editable
+import android.text.TextWatcher
 import android.view.KeyEvent
 import android.view.TextureView
 import android.view.View
 import android.widget.CompoundButton
 import android.widget.FrameLayout
+import android.widget.RadioGroup
 import android.widget.Toast
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.ComponentActivity
@@ -28,6 +31,7 @@ import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.lifecycleScope
 import androidx.lifecycle.repeatOnLifecycle
 import androidx.recyclerview.widget.GridLayoutManager
+import com.example.ar_control.camera.CameraSourceKind
 import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.camera.TextureViewSurfaceToken
 import com.example.ar_control.databinding.ActivityMainBinding
@@ -59,11 +63,15 @@ class MainActivity : ComponentActivity() {
     private var isImmersivePreviewEnabled = false
     private var lastAppliedPreviewSize: PreviewSize? = null
     private var lastAppliedZoomFactor: Float = 1.0f
+    private var isRenderingGemmaPrompt = false
+    private var isGemmaPromptDirty = false
+    private var lastRenderedRecordedClips: List<RecordedClipListItem> = emptyList()
     private lateinit var previewBackPressedCallback: OnBackPressedCallback
     private lateinit var recordedClipAdapter: RecordedClipAdapter
     private lateinit var recordVideoCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private lateinit var objectDetectionCheckedChangeListener: CompoundButton.OnCheckedChangeListener
     private lateinit var gemmaSubtitlesCheckedChangeListener: CompoundButton.OnCheckedChangeListener
+    private lateinit var cameraSourceCheckedChangeListener: RadioGroup.OnCheckedChangeListener
     private val previewBackButtonBaseMargin by lazy {
         resources.getDimensionPixelSize(R.dimen.preview_back_button_margin)
     }
@@ -87,7 +95,7 @@ class MainActivity : ComponentActivity() {
                 if (granted) {
                     previewViewModel.enableCamera()
                 } else {
-                    previewViewModel.onEnableCameraBlocked("Camera permission denied")
+                    previewViewModel.onEnableCameraBlocked("Разрешение камеры отклонено")
                 }
             }
 
@@ -95,7 +103,7 @@ class MainActivity : ComponentActivity() {
                 if (granted) {
                     startPreviewFromUi()
                 } else {
-                    previewViewModel.onPreviewStartBlocked("Camera permission denied")
+                    previewViewModel.onPreviewStartBlocked("Разрешение камеры отклонено")
                 }
             }
 
@@ -142,6 +150,15 @@ class MainActivity : ComponentActivity() {
                 )
                 previewViewModel.setGemmaSubtitlesEnabled(isChecked)
             }
+        cameraSourceCheckedChangeListener =
+            RadioGroup.OnCheckedChangeListener { _, checkedId ->
+                val source = when (checkedId) {
+                    R.id.androidCameraSourceRadio -> CameraSourceKind.ANDROID
+                    else -> CameraSourceKind.XREAL
+                }
+                appContainer.sessionLog.record("MainActivity", "Camera source changed: $source")
+                previewViewModel.setCameraSource(source)
+            }
 
         previewBackPressedCallback = onBackPressedDispatcher.addCallback(this, false) {
             appContainer.sessionLog.record("MainActivity", "Hardware back pressed in fullscreen preview")
@@ -170,6 +187,36 @@ class MainActivity : ComponentActivity() {
         binding.recordVideoCheckbox.setOnCheckedChangeListener(recordVideoCheckedChangeListener)
         binding.objectDetectionCheckbox.setOnCheckedChangeListener(objectDetectionCheckedChangeListener)
         binding.gemmaSubtitlesCheckbox.setOnCheckedChangeListener(gemmaSubtitlesCheckedChangeListener)
+        binding.cameraSourceRadioGroup.setOnCheckedChangeListener(cameraSourceCheckedChangeListener)
+        binding.gemmaPromptEditText.addTextChangedListener(object : TextWatcher {
+            override fun beforeTextChanged(
+                text: CharSequence?,
+                start: Int,
+                count: Int,
+                after: Int
+            ) = Unit
+
+            override fun onTextChanged(
+                text: CharSequence?,
+                start: Int,
+                before: Int,
+                count: Int
+            ) = Unit
+
+            override fun afterTextChanged(editable: Editable?) {
+                if (isRenderingGemmaPrompt) {
+                    return
+                }
+                isGemmaPromptDirty = editable?.toString().orEmpty() != latestUiState.gemmaPrompt
+                renderGemmaPromptApplyButton(latestUiState.gemmaPrompt)
+            }
+        })
+        binding.applyGemmaPromptButton.setOnClickListener {
+            appContainer.sessionLog.record("MainActivity", "Apply Gemma prompt tapped")
+            isGemmaPromptDirty = false
+            previewViewModel.setGemmaPrompt(binding.gemmaPromptEditText.text?.toString().orEmpty())
+            renderGemmaPromptApplyButton(latestUiState.gemmaPrompt)
+        }
         binding.downloadGemmaModelButton.setOnClickListener {
             appContainer.sessionLog.record("MainActivity", "Download Gemma model tapped")
             previewViewModel.downloadGemmaModel()
@@ -272,21 +319,27 @@ class MainActivity : ComponentActivity() {
         binding.enableCameraButton.isEnabled = uiState.canEnableCamera
         binding.startPreviewButton.isEnabled = surfaceController.isStartButtonEnabled(uiState)
         binding.stopPreviewButton.isEnabled = uiState.canStopPreview
+        renderCameraSourceSelector(uiState.selectedCameraSource)
         renderRecordVideoCheckbox(uiState.recordVideoEnabled)
         renderObjectDetectionCheckbox(uiState.objectDetectionEnabled)
         renderGemmaSubtitlesCheckbox(uiState.gemmaSubtitlesEnabled)
+        binding.cameraSourceRadioGroup.isEnabled = uiState.canChangeCameraSource
+        binding.xrealCameraSourceRadio.isEnabled = uiState.canChangeCameraSource
+        binding.androidCameraSourceRadio.isEnabled = uiState.canChangeCameraSource
         binding.recordVideoCheckbox.isEnabled = uiState.canChangeRecordVideo
         binding.objectDetectionCheckbox.isEnabled = uiState.canChangeObjectDetection
         binding.gemmaSubtitlesCheckbox.isEnabled = uiState.canChangeGemmaSubtitles
         binding.gemmaModelStatusText.text = uiState.gemmaModelStatusMessage(this)
         binding.downloadGemmaModelButton.text = uiState.gemmaModelDownloadButtonText(this)
-        binding.downloadGemmaModelButton.isEnabled = !uiState.isGemmaModelDownloadInProgress
+        binding.downloadGemmaModelButton.isEnabled = true
+        renderGemmaPrompt(uiState.gemmaPrompt)
+        renderGemmaPromptApplyButton(uiState.gemmaPrompt)
         binding.openClipButton.isEnabled = uiState.canOpenSelectedClip
         binding.shareClipButton.isEnabled = uiState.canShareSelectedClip
         binding.deleteClipButton.isEnabled = uiState.canDeleteSelectedClip
         binding.emptyRecordedClipsText.visibility =
             if (uiState.recordedClips.isEmpty()) View.VISIBLE else View.GONE
-        recordedClipAdapter.submitList(uiState.recordedClips.map(::toRecordedClipListItem))
+        renderRecordedClips(uiState)
         renderRecoveryState(uiState)
         renderPreviewRecordingStatus(uiState)
         previewBackPressedCallback.isEnabled = uiState.isPreviewRunning
@@ -296,7 +349,9 @@ class MainActivity : ComponentActivity() {
         binding.previewContainer.isFocusable = uiState.isPreviewRunning
         binding.detectionOverlayView.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
         binding.detectionOverlayView.setDetections(uiState.detectedObjects)
-        binding.gemmaSubtitleText.text = uiState.gemmaSubtitleText
+        if (binding.gemmaSubtitleText.text.toString() != uiState.gemmaSubtitleText) {
+            binding.gemmaSubtitleText.text = uiState.gemmaSubtitleText
+        }
         binding.gemmaSubtitleText.visibility =
             if (uiState.isPreviewRunning && uiState.gemmaSubtitleText.isNotBlank()) {
                 View.VISIBLE
@@ -391,6 +446,46 @@ class MainActivity : ComponentActivity() {
         binding.gemmaSubtitlesCheckbox.setOnCheckedChangeListener(gemmaSubtitlesCheckedChangeListener)
     }
 
+    private fun renderCameraSourceSelector(selectedCameraSource: CameraSourceKind) {
+        val checkedId = when (selectedCameraSource) {
+            CameraSourceKind.XREAL -> R.id.xrealCameraSourceRadio
+            CameraSourceKind.ANDROID -> R.id.androidCameraSourceRadio
+        }
+        if (binding.cameraSourceRadioGroup.checkedRadioButtonId == checkedId) {
+            return
+        }
+        binding.cameraSourceRadioGroup.setOnCheckedChangeListener(null)
+        binding.cameraSourceRadioGroup.check(checkedId)
+        binding.cameraSourceRadioGroup.setOnCheckedChangeListener(cameraSourceCheckedChangeListener)
+    }
+
+    private fun renderGemmaPrompt(prompt: String) {
+        if (isGemmaPromptDirty) {
+            return
+        }
+        if (binding.gemmaPromptEditText.text?.toString() == prompt) {
+            return
+        }
+        isRenderingGemmaPrompt = true
+        binding.gemmaPromptEditText.setText(prompt)
+        binding.gemmaPromptEditText.setSelection(prompt.length)
+        isRenderingGemmaPrompt = false
+    }
+
+    private fun renderGemmaPromptApplyButton(currentPrompt: String) {
+        val editedPrompt = binding.gemmaPromptEditText.text?.toString().orEmpty()
+        binding.applyGemmaPromptButton.isEnabled = isGemmaPromptDirty && editedPrompt != currentPrompt
+    }
+
+    private fun renderRecordedClips(uiState: PreviewUiState) {
+        val clipItems = uiState.recordedClips.map(::toRecordedClipListItem)
+        if (clipItems == lastRenderedRecordedClips) {
+            return
+        }
+        lastRenderedRecordedClips = clipItems
+        recordedClipAdapter.submitList(clipItems)
+    }
+
     private fun renderRecoveryState(uiState: PreviewUiState) {
         binding.recoveryCard.visibility = if (uiState.isSafeMode) View.VISIBLE else View.GONE
         if (!uiState.isSafeMode) {
@@ -443,11 +538,21 @@ class MainActivity : ComponentActivity() {
             return
         }
         lastAppliedPreviewSize = previewSize
-        binding.previewTextureView.setContentAspectRatio(previewSize.width, previewSize.height)
-        binding.detectionOverlayView.setContentAspectRatio(previewSize.width, previewSize.height)
+        binding.previewTextureView.setContentAspectRatio(
+            previewSize.width,
+            previewSize.height,
+            previewSize.rotationDegrees
+        )
+        binding.detectionOverlayView.setContentAspectRatio(
+            previewSize.displayWidth,
+            previewSize.displayHeight
+        )
         appContainer.sessionLog.record(
             "MainActivity",
-            "Applying fit-center preview aspect ratio ${previewSize.width}x${previewSize.height}"
+            "Applying fit-center preview aspect ratio " +
+                "${previewSize.displayWidth}x${previewSize.displayHeight} " +
+                "(buffer ${previewSize.width}x${previewSize.height}, " +
+                "rotation ${previewSize.rotationDegrees})"
         )
     }
 
@@ -633,7 +738,17 @@ internal fun PreviewUiState.gemmaModelStatusMessage(context: Context): String {
 }
 
 internal fun PreviewUiState.gemmaModelDownloadButtonText(context: Context): String {
-    return gemmaModelDownloadProgressText ?: context.getString(R.string.download_gemma_model)
+    if (!isGemmaModelDownloadInProgress) {
+        return context.getString(R.string.download_gemma_model)
+    }
+    val progressText = gemmaModelDownloadProgressText ?: "Модель Gemma: загрузка..."
+    val percent = progressText.substringAfterLast(' ', missingDelimiterValue = "")
+        .takeIf { it.endsWith("%") }
+    return if (percent != null) {
+        context.getString(R.string.cancel_gemma_model_download_progress, percent)
+    } else {
+        context.getString(R.string.cancel_gemma_model_download)
+    }
 }
 
 internal fun canLaunchIntent(packageManager: PackageManager, intent: Intent): Boolean {

@@ -5,6 +5,7 @@ import android.graphics.Color
 import android.graphics.ImageFormat
 import android.graphics.Rect
 import android.graphics.YuvImage
+import androidx.core.graphics.scale
 import com.example.ar_control.camera.PreviewSize
 import java.io.ByteArrayOutputStream
 
@@ -56,6 +57,31 @@ object Yuv420SpImageEncoder {
         return encodeJpegViaBitmap(nv21, previewSize, quality)
     }
 
+    fun encodePngForGemma(
+        frameBytes: ByteArray,
+        previewSize: PreviewSize,
+        maxDimension: Int = DEFAULT_GEMMA_IMAGE_MAX_DIMENSION
+    ): ByteArray {
+        require(maxDimension > 0) {
+            "Max dimension must be positive"
+        }
+
+        val nv21 = convertUvOrderYuv420SpToNv21(frameBytes, previewSize)
+        val bitmap = createBitmapFromNv21(nv21, previewSize)
+        val scaledBitmap = bitmap.scaleToFit(maxDimension)
+        return try {
+            ByteArrayOutputStream().use { output ->
+                scaledBitmap.compress(Bitmap.CompressFormat.PNG, 100, output)
+                output.toByteArray()
+            }
+        } finally {
+            if (scaledBitmap !== bitmap) {
+                scaledBitmap.recycle()
+            }
+            bitmap.recycle()
+        }
+    }
+
     private fun expectedYuv420SpByteCount(previewSize: PreviewSize): Int {
         require(previewSize.width > 0 && previewSize.height > 0) {
             "Preview size must be positive"
@@ -71,14 +97,40 @@ object Yuv420SpImageEncoder {
         previewSize: PreviewSize,
         quality: Int
     ): ByteArray {
-        val width = previewSize.width
-        val height = previewSize.height
-        val pixels = convertNv21ToArgbPixelsForFallback(nv21, previewSize)
-        val bitmap = Bitmap.createBitmap(pixels, width, height, Bitmap.Config.ARGB_8888)
+        val bitmap = createBitmapFromNv21(nv21, previewSize)
         return ByteArrayOutputStream().use { output ->
-            bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
-            output.toByteArray()
+            try {
+                bitmap.compress(Bitmap.CompressFormat.JPEG, quality, output)
+                output.toByteArray()
+            } finally {
+                bitmap.recycle()
+            }
         }
+    }
+
+    private fun createBitmapFromNv21(
+        nv21: ByteArray,
+        previewSize: PreviewSize
+    ): Bitmap {
+        val pixels = convertNv21ToArgbPixelsForFallback(nv21, previewSize)
+        return Bitmap.createBitmap(
+            pixels,
+            previewSize.width,
+            previewSize.height,
+            Bitmap.Config.ARGB_8888
+        )
+    }
+
+    private fun Bitmap.scaleToFit(maxDimension: Int): Bitmap {
+        val largestDimension = maxOf(width, height)
+        if (largestDimension <= maxDimension) {
+            return this
+        }
+
+        val scale = maxDimension.toFloat() / largestDimension.toFloat()
+        val scaledWidth = (width * scale).toInt().coerceAtLeast(1)
+        val scaledHeight = (height * scale).toInt().coerceAtLeast(1)
+        return scale(scaledWidth, scaledHeight)
     }
 
     internal fun convertNv21ToArgbPixelsForFallback(
@@ -121,4 +173,5 @@ object Yuv420SpImageEncoder {
     }
 
     private const val DEFAULT_JPEG_QUALITY = 70
+    private const val DEFAULT_GEMMA_IMAGE_MAX_DIMENSION = 1024
 }

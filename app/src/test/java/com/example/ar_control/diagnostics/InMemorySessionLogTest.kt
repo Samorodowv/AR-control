@@ -62,6 +62,10 @@ class InMemorySessionLogTest {
                 previewSize = PreviewSize(width = 1920, height = 1080),
                 zoomFactor = 1.15f,
                 recordVideoEnabled = true,
+                gemmaSubtitlesEnabled = true,
+                gemmaModelDisplayName = "gemma-4-E2B-it.litertlm",
+                isGemmaModelDownloadInProgress = true,
+                gemmaModelDownloadProgressText = "Gemma model: downloading 14%",
                 recordingStatus = RecordingStatus.Recording,
                 recordedClips = listOf(
                     RecordedClip(
@@ -99,6 +103,10 @@ class InMemorySessionLogTest {
         assertTrue(report.contains("Preview size: 1920x1080"))
         assertTrue(report.contains("Zoom factor: 1.15"))
         assertTrue(report.contains("Record video enabled: true"))
+        assertTrue(report.contains("Gemma subtitles enabled: true"))
+        assertTrue(report.contains("Gemma model: gemma-4-E2B-it.litertlm"))
+        assertTrue(report.contains("Gemma model download in progress: true"))
+        assertTrue(report.contains("Gemma model download status: Gemma model: downloading 14%"))
         assertTrue(report.contains("Recording status: Recording"))
         assertTrue(report.contains("Recorded clips: 2"))
         assertTrue(report.contains("Selected clip id: clip-2"))

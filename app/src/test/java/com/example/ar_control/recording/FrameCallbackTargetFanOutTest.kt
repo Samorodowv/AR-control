@@ -17,6 +17,7 @@ class FrameCallbackTargetFanOutTest {
             listOf(
                 RecordingInputTarget.FrameCallbackTarget(
                     pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    minimumFrameIntervalNanos = 3_000_000_000L,
                     frameConsumer = VideoFrameConsumer { frame, timestampNanos ->
                         firstFrames += frame.copyBytes()
                         firstTimestamps += timestampNanos
@@ -24,6 +25,7 @@ class FrameCallbackTargetFanOutTest {
                 ),
                 RecordingInputTarget.FrameCallbackTarget(
                     pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    minimumFrameIntervalNanos = 1_000_000_000L,
                     frameConsumer = VideoFrameConsumer { frame, timestampNanos ->
                         secondFrames += frame.copyBytes()
                         secondTimestamps += timestampNanos
@@ -35,6 +37,7 @@ class FrameCallbackTargetFanOutTest {
         combined.frameConsumer.onFrame(ByteBuffer.wrap(byteArrayOf(1, 2, 3, 4)), 42L)
 
         assertEquals(VideoFramePixelFormat.YUV420SP, combined.pixelFormat)
+        assertEquals(1_000_000_000L, combined.minimumFrameIntervalNanos)
         assertArrayEquals(byteArrayOf(1, 2, 3, 4), firstFrames.single())
         assertArrayEquals(byteArrayOf(1, 2, 3, 4), secondFrames.single())
         assertEquals(listOf(42L), firstTimestamps)
@@ -55,6 +58,25 @@ class FrameCallbackTargetFanOutTest {
                 )
             )
         )
+    }
+
+    @Test
+    fun combine_usesEveryFrameWhenAnyTargetNeedsEveryFrame() {
+        val combined = FrameCallbackTargetFanOut.combine(
+            listOf(
+                RecordingInputTarget.FrameCallbackTarget(
+                    pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    minimumFrameIntervalNanos = 3_000_000_000L,
+                    frameConsumer = VideoFrameConsumer { _, _ -> }
+                ),
+                RecordingInputTarget.FrameCallbackTarget(
+                    pixelFormat = VideoFramePixelFormat.YUV420SP,
+                    frameConsumer = VideoFrameConsumer { _, _ -> }
+                )
+            )
+        )
+
+        assertEquals(0L, combined.minimumFrameIntervalNanos)
     }
 
     private fun ByteBuffer.copyBytes(): ByteArray {

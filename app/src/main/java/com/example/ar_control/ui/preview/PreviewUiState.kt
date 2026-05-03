@@ -1,14 +1,17 @@
 package com.example.ar_control.ui.preview
 
+import com.example.ar_control.camera.CameraSourceKind
 import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.detection.DetectedObject
+import com.example.ar_control.gemma.DEFAULT_GEMMA_CAPTION_PROMPT
 import com.example.ar_control.recording.RecordedClip
 import com.example.ar_control.recording.RecordingStatus
 import com.example.ar_control.recovery.BrokenClipMetadata
 
 data class PreviewUiState(
-    val glassesStatus: String = "Glasses: disconnected",
-    val cameraStatus: String = "Camera: idle",
+    val selectedCameraSource: CameraSourceKind = CameraSourceKind.XREAL,
+    val glassesStatus: String = "Очки: отключены",
+    val cameraStatus: String = "Камера: ожидание",
     val canEnableCamera: Boolean = true,
     val canStartPreview: Boolean = false,
     val canStopPreview: Boolean = false,
@@ -21,6 +24,7 @@ data class PreviewUiState(
     val gemmaModelDisplayName: String? = null,
     val isGemmaModelDownloadInProgress: Boolean = false,
     val gemmaModelDownloadProgressText: String? = null,
+    val gemmaPrompt: String = DEFAULT_GEMMA_CAPTION_PROMPT,
     val gemmaSubtitleText: String = "",
     val recordingStatus: RecordingStatus = RecordingStatus.Idle,
     val detectedObjects: List<DetectedObject> = emptyList(),
@@ -32,7 +36,8 @@ data class PreviewUiState(
     val brokenClipMetadata: BrokenClipMetadata? = null,
     val canChangeRecordVideo: Boolean = true,
     val canChangeObjectDetection: Boolean = true,
-    val canChangeGemmaSubtitles: Boolean = true
+    val canChangeGemmaSubtitles: Boolean = true,
+    val canChangeCameraSource: Boolean = true
 ) {
     val selectedClip: RecordedClip?
         get() = recordedClips.firstOrNull { it.id == selectedClipId }

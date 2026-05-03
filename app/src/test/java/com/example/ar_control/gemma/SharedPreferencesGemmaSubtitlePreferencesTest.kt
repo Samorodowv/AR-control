@@ -32,6 +32,7 @@ class SharedPreferencesGemmaSubtitlePreferencesTest {
         assertFalse(preferences.isGemmaSubtitlesEnabled())
         assertNull(preferences.getModelPath())
         assertNull(preferences.getModelDisplayName())
+        assertEquals(DEFAULT_GEMMA_CAPTION_PROMPT, preferences.getCaptionPrompt())
     }
 
     @Test
@@ -61,6 +62,33 @@ class SharedPreferencesGemmaSubtitlePreferencesTest {
 
         assertNull(preferences.getModelPath())
         assertNull(preferences.getModelDisplayName())
+    }
+
+    @Test
+    fun persistsCaptionPrompt() {
+        preferences.setCaptionPrompt("Опиши только движение в кадре.")
+
+        val reloaded = SharedPreferencesGemmaSubtitlePreferences(context, FILE_NAME)
+
+        assertEquals("Опиши только движение в кадре.", reloaded.getCaptionPrompt())
+    }
+
+    @Test
+    fun migratesOldDefaultCaptionPrompt() {
+        preferences.setCaptionPrompt(
+            "Опиши на русском языке. " +
+                "Ответь только по-русски, без английских слов. " +
+                "До 20 слов. Не упоминай, что это изображение."
+        )
+
+        val reloaded = SharedPreferencesGemmaSubtitlePreferences(context, FILE_NAME)
+
+        assertEquals(
+            "Опиши подробно на русском языке. " +
+                "Ответь только по-русски, без английских слов. " +
+                "2-3 предложения, до 60 слов. Не упоминай, что это изображение.",
+            reloaded.getCaptionPrompt()
+        )
     }
 
     private companion object {

@@ -58,7 +58,7 @@ class GemmaModelDownloader internal constructor(
     )
 
     suspend fun downloadModel(
-        onProgress: (GemmaModelDownloadProgress) -> Unit = {}
+        onProgress: suspend (GemmaModelDownloadProgress) -> Unit = {}
     ): GemmaModelDownloadResult = withContext(ioDispatcher) {
         val stream = try {
             openStream(source.url)
@@ -126,7 +126,7 @@ private suspend fun copyWithProgress(
     source: InputStream,
     targetFile: File,
     totalBytes: Long?,
-    onProgress: (GemmaModelDownloadProgress) -> Unit
+    onProgress: suspend (GemmaModelDownloadProgress) -> Unit
 ): String {
     val digest = MessageDigest.getInstance("SHA-256")
     var bytesDownloaded = 0L

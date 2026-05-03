@@ -1,7 +1,8 @@
 package com.example.ar_control.face
 
 class FaceEnrollmentController(
-    private val embeddingStore: FaceEmbeddingStore
+    private val embeddingStore: FaceEmbeddingStore,
+    private val duplicateThreshold: Float = 0.88f
 ) {
     fun rememberCurrentFace(
         state: FaceRecognitionState,
@@ -17,13 +18,23 @@ class FaceEnrollmentController(
         if (state.faceCount != 1) {
             return FaceEnrollmentResult.NoFace
         }
+        val existingFaceId = state.matchedFace?.id ?: findDuplicateFace(embedding)?.id
         return FaceEnrollmentResult.Remembered(
             embeddingStore.remember(
                 embedding = embedding,
                 accessStatus = accessStatus,
-                existingFaceId = state.matchedFace?.id
+                existingFaceId = existingFaceId
             )
         )
+    }
+
+    private fun findDuplicateFace(embedding: FaceEmbedding): RememberedFace? {
+        return FaceEmbeddingMatcher(matchThreshold = duplicateThreshold)
+            .findBestMatch(
+                probe = embedding,
+                rememberedFaces = embeddingStore.loadAll()
+            )
+            ?.face
     }
 }
 

@@ -11,6 +11,12 @@ import com.example.ar_control.detection.NoOpObjectDetector
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.face.FaceEnrollmentResult
+import com.example.ar_control.face.FaceRecognitionSession
+import com.example.ar_control.face.FaceRecognitionState
+import com.example.ar_control.face.FaceRecognitionStatus
+import com.example.ar_control.face.FaceRecognizer
+import com.example.ar_control.face.NoOpFaceRecognizer
 import com.example.ar_control.gemma.DEFAULT_GEMMA_CAPTION_PROMPT
 import com.example.ar_control.gemma.GemmaCaptionSession
 import com.example.ar_control.gemma.GemmaFrameCaptioner
@@ -63,6 +69,7 @@ class PreviewViewModel(
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
     private val gemmaModelDownloadScheduler: GemmaModelDownloadScheduler? = null,
     private val gemmaFrameCaptioner: GemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
+    private val faceRecognizer: FaceRecognizer = NoOpFaceRecognizer(),
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
     private val recoveryManager: RecoveryManager,
@@ -82,6 +89,7 @@ class PreviewViewModel(
     private var recoverySnapshot = RecoverySnapshot()
     private var activeDetectionSession: ObjectDetectionSession? = null
     private var activeGemmaCaptionSession: GemmaCaptionSession? = null
+    private var activeFaceRecognitionSession: FaceRecognitionSession? = null
     private var hasActiveFrameCallbackCapture = false
     private var activePreviewCameraSource: CameraSource? = null
 
@@ -428,6 +436,23 @@ class PreviewViewModel(
         updatePreviewZoom(delta = -zoomStep, logLabel = "preview_zoom_out")
     }
 
+    fun rememberCurrentFace() {
+        val session = activeFaceRecognitionSession
+        if (!_uiState.value.isPreviewRunning || session == null) {
+            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                faceRecognitionStatusText = FACE_RECOGNITION_PREVIEW_NOT_RUNNING
+            ))
+            return
+        }
+        val result = session.rememberCurrentFace()
+        sessionLog.record("PreviewViewModel", "Face enrollment requested: ${result.toLogLabel()}")
+        viewModelScope.launch {
+            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                faceRecognitionStatusText = result.toStatusText()
+            ))
+        }
+    }
+
     fun onPreviewStartBlocked(reason: String) {
         sessionLog.record("PreviewViewModel", "Preview start blocked: $reason")
         _uiState.value = cameraSourceReadyState(errorMessage = reason)
@@ -443,6 +468,7 @@ class PreviewViewModel(
             sessionLog.record("PreviewViewModel", "Clearing preview resources")
             runCatching { activeDetectionSession?.close() }
             runCatching { closeGemmaCaptionSession(clearSubtitle = true) }
+            runCatching { closeFaceRecognitionSession(clearStatus = true) }
             runCatching { activeCameraSource().stopRecording() }
             runCatching { videoRecorder.cancel() }
             runCatching { stopCameraSources() }
@@ -529,6 +555,23 @@ class PreviewViewModel(
         val shouldRecord = _uiState.value.recordVideoEnabled
         val shouldRunGemma = _uiState.value.gemmaSubtitlesEnabled
         val gemmaModelPath = gemmaSubtitlePreferences.getModelPath()
+        var startedFaceRecognitionSession: FaceRecognitionSession? = null
+        val faceRecognitionSession = faceRecognizer.start(previewSize) { state ->
+            viewModelScope.launch {
+                if (
+                    isCurrentPreviewGeneration(generation) &&
+                    activeFaceRecognitionSession === startedFaceRecognitionSession &&
+                    _uiState.value.isPreviewRunning
+                ) {
+                    _uiState.value = applyRecoveryState(_uiState.value.copy(
+                        faceRecognitionStatusText = state.toStatusText()
+                    ))
+                }
+            }
+        }
+        startedFaceRecognitionSession = faceRecognitionSession
+        activeFaceRecognitionSession = faceRecognitionSession
+        val shouldRunFaceRecognitionFrames = faceRecognitionSession.currentState.modelReady
         if (!shouldRunDetection) {
             detectionAnnotationSink.clearDetections()
         }
@@ -539,9 +582,16 @@ class PreviewViewModel(
                 gemmaSubtitleText = ""
             ))
         }
-        if ((!shouldRunDetection && !shouldRecord && (gemmaModelPath == null || !shouldRunGemma)) ||
+        if ((!shouldRunDetection &&
+                !shouldRecord &&
+                !shouldRunFaceRecognitionFrames &&
+                (gemmaModelPath == null || !shouldRunGemma)
+            ) ||
             !isCurrentPreviewGeneration(generation)
         ) {
+            if (!isCurrentPreviewGeneration(generation)) {
+                closeFaceRecognitionSession(clearStatus = true)
+            }
             return
         }
 
@@ -616,6 +666,7 @@ class PreviewViewModel(
             sessionLog.record("PreviewViewModel", "Frame pipeline prepared after preview stop; closing stale sessions")
             closeDetectionSession(clearDetections = true)
             closeGemmaCaptionSession(clearSubtitle = true)
+            closeFaceRecognitionSession(clearStatus = true)
             return
         }
 
@@ -623,7 +674,8 @@ class PreviewViewModel(
             val captureTarget = combineFrameTargets(
                 recorderTarget = null,
                 detectionSession = detectionSession,
-                gemmaCaptionSession = gemmaCaptionSession
+                gemmaCaptionSession = gemmaCaptionSession,
+                faceRecognitionSession = faceRecognitionSession.takeIf { shouldRunFaceRecognitionFrames }
             ) ?: return
             startFrameCallbackCapture(
                 target = captureTarget,
@@ -631,6 +683,7 @@ class PreviewViewModel(
                 onFailure = { reason ->
                     closeDetectionSession(clearDetections = true)
                     closeGemmaCaptionSession(clearSubtitle = true)
+                    closeFaceRecognitionSession(clearStatus = true)
                     _uiState.value = applyRecoveryState(_uiState.value.copy(errorMessage = reason))
                 }
             )
@@ -652,6 +705,7 @@ class PreviewViewModel(
                     sessionLog.record("PreviewViewModel", "Recorder prepared after preview stop; cancelling stale session")
                     closeDetectionSession(clearDetections = true)
                     closeGemmaCaptionSession(clearSubtitle = true)
+                    closeFaceRecognitionSession(clearStatus = true)
                     cancelPreparedRecorder(reasonForLog = "Stale preview generation after recorder start")
                     return
                 }
@@ -664,11 +718,13 @@ class PreviewViewModel(
                 val captureTarget = combineFrameTargets(
                     recorderTarget = recorderResult.inputTarget,
                     detectionSession = detectionSession,
-                    gemmaCaptionSession = gemmaCaptionSession
+                    gemmaCaptionSession = gemmaCaptionSession,
+                    faceRecognitionSession = faceRecognitionSession.takeIf { shouldRunFaceRecognitionFrames }
                 )
                 if (captureTarget == null) {
                     closeDetectionSession(clearDetections = true)
                     closeGemmaCaptionSession(clearSubtitle = true)
+                    closeFaceRecognitionSession(clearStatus = true)
                     cancelPreparedRecorder(reasonForLog = "Unsupported detection and recording targets")
                     _uiState.value = applyRecoveryState(_uiState.value.copy(
                         recordingStatus = RecordingStatus.Failed("detection_recording_target_mismatch"),
@@ -685,6 +741,7 @@ class PreviewViewModel(
                             hasActiveFrameCallbackCapture = false
                             closeDetectionSession(clearDetections = true)
                             closeGemmaCaptionSession(clearSubtitle = true)
+                            closeFaceRecognitionSession(clearStatus = true)
                             cancelPreparedRecorder(reasonForLog = "Stale preview generation after capture start")
                             return
                         }
@@ -704,6 +761,7 @@ class PreviewViewModel(
                             sessionLog.record("PreviewViewModel", "Capture failure arrived after preview stop; cancelling stale session")
                             closeDetectionSession(clearDetections = true)
                             closeGemmaCaptionSession(clearSubtitle = true)
+                            closeFaceRecognitionSession(clearStatus = true)
                             cancelPreparedRecorder(reasonForLog = "Stale preview generation after capture failure")
                             return
                         }
@@ -714,6 +772,7 @@ class PreviewViewModel(
                         cancelPreparedRecorder(reasonForLog = "Capture start failed")
                         closeDetectionSession(clearDetections = true)
                         closeGemmaCaptionSession(clearSubtitle = true)
+                        closeFaceRecognitionSession(clearStatus = true)
                         recoveryManager.markPreviewStarted()
                         _uiState.value = applyRecoveryState(_uiState.value.copy(
                             recordingStatus = RecordingStatus.Failed(captureResult.reason),
@@ -730,6 +789,7 @@ class PreviewViewModel(
                 }
                 closeDetectionSession(clearDetections = true)
                 closeGemmaCaptionSession(clearSubtitle = true)
+                closeFaceRecognitionSession(clearStatus = true)
                 sessionLog.record("PreviewViewModel", "Recorder start failed: ${recorderResult.reason}")
                 _uiState.value = applyRecoveryState(_uiState.value.copy(
                     recordingStatus = RecordingStatus.Failed(recorderResult.reason),
@@ -822,6 +882,7 @@ class PreviewViewModel(
 
         closeDetectionSession(clearDetections = true)
         closeGemmaCaptionSession(clearSubtitle = true)
+        closeFaceRecognitionSession(clearStatus = true)
 
         sessionLog.record("PreviewViewModel", "Stopping camera preview source")
         activeCameraSource().stop()
@@ -1144,9 +1205,12 @@ class PreviewViewModel(
     private fun combineFrameTargets(
         recorderTarget: RecordingInputTarget?,
         detectionSession: ObjectDetectionSession?,
-        gemmaCaptionSession: GemmaCaptionSession?
+        gemmaCaptionSession: GemmaCaptionSession?,
+        faceRecognitionSession: FaceRecognitionSession?
     ): RecordingInputTarget? {
-        val requiresFrameCallbacks = detectionSession != null || gemmaCaptionSession != null
+        val requiresFrameCallbacks = detectionSession != null ||
+            gemmaCaptionSession != null ||
+            faceRecognitionSession != null
         if (recorderTarget != null && !requiresFrameCallbacks) {
             return recorderTarget
         }
@@ -1158,6 +1222,7 @@ class PreviewViewModel(
             }
             detectionSession?.inputTarget?.let { add(it) }
             gemmaCaptionSession?.inputTarget?.let { add(it) }
+            faceRecognitionSession?.inputTarget?.let { add(it) }
         }
         if (callbackTargets.isEmpty()) {
             return recorderTarget
@@ -1188,10 +1253,54 @@ class PreviewViewModel(
         }
     }
 
+    private fun closeFaceRecognitionSession(clearStatus: Boolean) {
+        activeFaceRecognitionSession?.close()
+        activeFaceRecognitionSession = null
+        if (clearStatus) {
+            _uiState.value = applyRecoveryState(_uiState.value.copy(faceRecognitionStatusText = null))
+        }
+    }
+
+    private fun FaceRecognitionState.toStatusText(): String {
+        return when (status) {
+            FaceRecognitionStatus.ModelMissing -> FACE_RECOGNITION_MODEL_MISSING
+            FaceRecognitionStatus.NoFace -> FACE_RECOGNITION_NO_FACE
+            FaceRecognitionStatus.MultipleFaces -> FACE_RECOGNITION_MULTIPLE_FACES
+            FaceRecognitionStatus.UnknownFace -> FACE_RECOGNITION_UNKNOWN_FACE
+            FaceRecognitionStatus.RememberedFace ->
+                matchedFace?.label?.let { label -> "Лицо: $label" } ?: FACE_RECOGNITION_UNKNOWN_FACE
+        }
+    }
+
+    private fun FaceEnrollmentResult.toStatusText(): String {
+        return when (this) {
+            FaceEnrollmentResult.ModelMissing -> FACE_RECOGNITION_MODEL_MISSING
+            FaceEnrollmentResult.NoFace -> FACE_RECOGNITION_NO_FACE_TO_REMEMBER
+            FaceEnrollmentResult.MultipleFaces -> FACE_RECOGNITION_MULTIPLE_FACES_TO_REMEMBER
+            is FaceEnrollmentResult.Remembered -> "Запомнил ${face.label}"
+        }
+    }
+
+    private fun FaceEnrollmentResult.toLogLabel(): String {
+        return when (this) {
+            FaceEnrollmentResult.ModelMissing -> "model_missing"
+            FaceEnrollmentResult.NoFace -> "no_face"
+            FaceEnrollmentResult.MultipleFaces -> "multiple_faces"
+            is FaceEnrollmentResult.Remembered -> "remembered:${face.id}"
+        }
+    }
+
     private companion object {
         const val RECORDING_NOT_STARTED = "recording_not_started"
         const val GEMMA_MODEL_NOT_CONFIGURED = "Модель Gemma не настроена"
         const val GEMMA_MODEL_DOWNLOADING = "Модель Gemma: загрузка..."
+        const val FACE_RECOGNITION_MODEL_MISSING = "Лица: модель не найдена"
+        const val FACE_RECOGNITION_NO_FACE = "Лица: наведите камеру на лицо"
+        const val FACE_RECOGNITION_MULTIPLE_FACES = "Лица: несколько лиц"
+        const val FACE_RECOGNITION_UNKNOWN_FACE = "Лицо: неизвестное"
+        const val FACE_RECOGNITION_PREVIEW_NOT_RUNNING = "Лица: просмотр не запущен"
+        const val FACE_RECOGNITION_NO_FACE_TO_REMEMBER = "Лицо не найдено"
+        const val FACE_RECOGNITION_MULTIPLE_FACES_TO_REMEMBER = "Оставьте в кадре одно лицо"
     }
 }
 

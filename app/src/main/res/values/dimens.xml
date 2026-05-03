@@ -7,6 +7,7 @@
     <dimen name="clip_grid_spacing">8dp</dimen>
     <dimen name="clip_preview_height">72dp</dimen>
     <dimen name="preview_status_margin_top">16dp</dimen>
+    <dimen name="preview_face_status_margin_top">56dp</dimen>
     <dimen name="preview_status_padding_horizontal">12dp</dimen>
     <dimen name="preview_status_padding_vertical">6dp</dimen>
     <dimen name="gemma_subtitle_margin_bottom">72dp</dimen>

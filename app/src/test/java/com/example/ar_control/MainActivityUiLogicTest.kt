@@ -115,6 +115,18 @@ class MainActivityUiLogicTest {
     }
 
     @Test
+    fun mainLayout_containsFaceRecognitionStatusOverlay() {
+        val themedContext = ContextThemeWrapper(context, R.style.Theme_AR_Control)
+        val view = LayoutInflater.from(themedContext).inflate(
+            R.layout.activity_main,
+            FrameLayout(themedContext),
+            false
+        )
+
+        assertNotNull(view.findViewById<View>(R.id.faceRecognitionStatusText))
+    }
+
+    @Test
     fun previewTextureAlpha_hidesPreviewOnlyWhenHudModeIsRunning() {
         assertEquals(1f, previewTextureAlpha(isPreviewRunning = false, transparentHudEnabled = false))
         assertEquals(1f, previewTextureAlpha(isPreviewRunning = false, transparentHudEnabled = true))

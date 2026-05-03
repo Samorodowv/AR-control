@@ -35,7 +35,7 @@ class VolumeUpDoublePressDetector(
         data object DoublePress : Action
     }
 
-    private companion object {
+    companion object {
         const val DEFAULT_DOUBLE_PRESS_WINDOW_MILLIS = 600L
     }
 }

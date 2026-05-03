@@ -18,6 +18,9 @@ import com.example.ar_control.detection.SharedPreferencesDetectionPreferences
 import com.example.ar_control.diagnostics.DiagnosticsReportBuilder
 import com.example.ar_control.diagnostics.PersistentSessionLog
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.face.FaceRecognizer
+import com.example.ar_control.face.MlKitFaceRecognizer
+import com.example.ar_control.face.SharedPreferencesFaceEmbeddingStore
 import com.example.ar_control.gemma.GemmaFrameCaptioner
 import com.example.ar_control.gemma.GemmaModelDownloadScheduler
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
@@ -164,6 +167,14 @@ class DefaultAppContainer(
         )
     }
 
+    private val faceRecognizer: FaceRecognizer by lazy {
+        MlKitFaceRecognizer(
+            context = appContext,
+            embeddingStore = SharedPreferencesFaceEmbeddingStore(appContext),
+            sessionLog = sessionLog
+        )
+    }
+
     private val recoveryManager: RecoveryManager by lazy {
         DefaultRecoveryManager(
             stateStore = FileRecoveryStateStore(
@@ -211,6 +222,7 @@ class DefaultAppContainer(
             gemmaSubtitlePreferences = gemmaSubtitlePreferences,
             gemmaModelDownloadScheduler = gemmaModelDownloadScheduler,
             gemmaFrameCaptioner = gemmaFrameCaptioner,
+            faceRecognizer = faceRecognizer,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,
             recoveryManager = recoveryManager,

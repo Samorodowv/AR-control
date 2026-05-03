@@ -27,6 +27,7 @@ data class PreviewUiState(
     val gemmaModelDownloadProgressText: String? = null,
     val gemmaPrompt: String = DEFAULT_GEMMA_CAPTION_PROMPT,
     val gemmaSubtitleText: String = "",
+    val faceRecognitionStatusText: String? = null,
     val recordingStatus: RecordingStatus = RecordingStatus.Idle,
     val detectedObjects: List<DetectedObject> = emptyList(),
     val inferenceFps: Float = 0f,

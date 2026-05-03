@@ -17,7 +17,7 @@ Add reliable-first on-device face recognition to the preview flow. The first imp
 
 Face recognition is implemented as a separate frame session that plugs into the existing recording/detection/Gemma frame fan-out. ML Kit performs face-box detection on YUV frames. A `FaceEmbeddingModel` converts the best aligned face crop into a normalized embedding through LiteRT when a model asset exists.
 
-The first model asset path is `models/face_embedding.tflite`. This keeps the app buildable before the model is added. Recommended initial converted model is EdgeFace or GhostFaceNets for reliability, with FaceLiVTv2-XS as a later quality upgrade after conversion is proven.
+The first model asset path is `models/face_embedding.tflite`. The initial packaged model is FaceNet 128-dim at 160x160 so enrollment works immediately; EdgeFace or GhostFaceNets remain the preferred later quality upgrade after conversion and preprocessing are proven on device.
 
 ## Components
 

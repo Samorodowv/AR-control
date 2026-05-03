@@ -348,6 +348,22 @@
             android:textAppearance="?attr/textAppearanceBodyMedium"
             android:textColor="@android:color/white"
             android:visibility="gone" />
+
+        <TextView
+            android:id="@+id/faceRecognitionStatusText"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_gravity="top|center_horizontal"
+            android:layout_marginTop="@dimen/preview_face_status_margin_top"
+            android:background="#66000000"
+            android:maxLines="2"
+            android:paddingStart="@dimen/preview_status_padding_horizontal"
+            android:paddingTop="@dimen/preview_status_padding_vertical"
+            android:paddingEnd="@dimen/preview_status_padding_horizontal"
+            android:paddingBottom="@dimen/preview_status_padding_vertical"
+            android:textAppearance="?attr/textAppearanceBodyMedium"
+            android:textColor="@android:color/white"
+            android:visibility="gone" />
     </FrameLayout>
 
 </FrameLayout>

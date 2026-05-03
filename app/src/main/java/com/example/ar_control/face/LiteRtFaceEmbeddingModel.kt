@@ -8,6 +8,8 @@ import com.google.ai.edge.litert.Accelerator
 import com.google.ai.edge.litert.CompiledModel
 import com.google.ai.edge.litert.Environment
 import com.google.ai.edge.litert.TensorBuffer
+import kotlin.math.max
+import kotlin.math.sqrt
 
 class LiteRtFaceEmbeddingModel private constructor(
     private val environment: Environment,
@@ -39,27 +41,13 @@ class LiteRtFaceEmbeddingModel private constructor(
         if (resized !== this) {
             resized.recycle()
         }
-        val output = FloatArray(INPUT_WIDTH * INPUT_HEIGHT * CHANNEL_COUNT)
-        var outputIndex = 0
-        for (pixel in pixels) {
-            val red = (pixel shr 16) and 0xFF
-            val green = (pixel shr 8) and 0xFF
-            val blue = pixel and 0xFF
-            output[outputIndex++] = normalizeChannel(red)
-            output[outputIndex++] = normalizeChannel(green)
-            output[outputIndex++] = normalizeChannel(blue)
-        }
-        return output
-    }
-
-    private fun normalizeChannel(channel: Int): Float {
-        return (channel / 127.5f) - 1f
+        return FaceNetImagePreprocessor.standardizeRgbPixels(pixels)
     }
 
     companion object {
         const val DEFAULT_MODEL_ASSET_PATH = "models/face_embedding.tflite"
-        const val INPUT_WIDTH = 112
-        const val INPUT_HEIGHT = 112
+        const val INPUT_WIDTH = 160
+        const val INPUT_HEIGHT = 160
         private const val CHANNEL_COUNT = 3
 
         fun openOrNull(
@@ -113,3 +101,37 @@ class LiteRtFaceEmbeddingModel private constructor(
     }
 }
 
+internal object FaceNetImagePreprocessor {
+    fun standardizeRgbPixels(pixels: IntArray): FloatArray {
+        val rgbValues = FloatArray(pixels.size * CHANNEL_COUNT)
+        var index = 0
+        for (pixel in pixels) {
+            rgbValues[index++] = ((pixel shr 16) and 0xFF).toFloat()
+            rgbValues[index++] = ((pixel shr 8) and 0xFF).toFloat()
+            rgbValues[index++] = (pixel and 0xFF).toFloat()
+        }
+
+        var sum = 0f
+        for (value in rgbValues) {
+            sum += value
+        }
+        val mean = sum / rgbValues.size
+
+        var squaredDifferenceSum = 0f
+        for (value in rgbValues) {
+            val difference = value - mean
+            squaredDifferenceSum += difference * difference
+        }
+        val standardDeviation = max(
+            sqrt(squaredDifferenceSum / rgbValues.size),
+            1f / sqrt(rgbValues.size.toFloat())
+        )
+
+        for (valueIndex in rgbValues.indices) {
+            rgbValues[valueIndex] = (rgbValues[valueIndex] - mean) / standardDeviation
+        }
+        return rgbValues
+    }
+
+    private const val CHANNEL_COUNT = 3
+}

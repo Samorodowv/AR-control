@@ -7,6 +7,8 @@ import com.example.ar_control.camera.CameraSourcePreferences
 import com.example.ar_control.detection.DetectionPreferences
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.SessionLog
+import com.example.ar_control.face.FaceRecognizer
+import com.example.ar_control.face.NoOpFaceRecognizer
 import com.example.ar_control.gemma.GemmaFrameCaptioner
 import com.example.ar_control.gemma.GemmaModelDownloadScheduler
 import com.example.ar_control.gemma.GemmaSubtitlePreferences
@@ -35,6 +37,7 @@ class PreviewViewModelFactory(
     private val gemmaSubtitlePreferences: GemmaSubtitlePreferences = NoOpGemmaSubtitlePreferences,
     private val gemmaModelDownloadScheduler: GemmaModelDownloadScheduler? = null,
     private val gemmaFrameCaptioner: GemmaFrameCaptioner = NoOpGemmaFrameCaptioner,
+    private val faceRecognizer: FaceRecognizer = NoOpFaceRecognizer(),
     private val clipRepository: ClipRepository,
     private val videoRecorder: VideoRecorder,
     private val recoveryManager: RecoveryManager,
@@ -60,6 +63,7 @@ class PreviewViewModelFactory(
             gemmaSubtitlePreferences = gemmaSubtitlePreferences,
             gemmaModelDownloadScheduler = gemmaModelDownloadScheduler,
             gemmaFrameCaptioner = gemmaFrameCaptioner,
+            faceRecognizer = faceRecognizer,
             clipRepository = clipRepository,
             videoRecorder = videoRecorder,
             recoveryManager = recoveryManager,

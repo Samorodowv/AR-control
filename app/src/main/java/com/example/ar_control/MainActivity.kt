@@ -7,6 +7,9 @@ import android.content.ActivityNotFoundException
 import android.content.pm.PackageManager
 import android.graphics.SurfaceTexture
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.os.SystemClock
 import android.text.Editable
 import android.text.TextWatcher
 import android.view.KeyEvent
@@ -43,6 +46,7 @@ import com.example.ar_control.ui.clips.RecordedClipAdapter
 import com.example.ar_control.ui.clips.RecordedClipListItem
 import com.example.ar_control.ui.preview.PreviewUiState
 import com.example.ar_control.ui.preview.PreviewViewModel
+import com.example.ar_control.ui.preview.VolumeUpDoublePressDetector
 import com.google.android.material.dialog.MaterialAlertDialogBuilder
 import java.text.DateFormat
 import java.util.Date
@@ -69,6 +73,16 @@ class MainActivity : ComponentActivity() {
     private var lastRenderedRecordedClips: List<RecordedClipListItem> = emptyList()
     private val previewFpsTracker = FramesPerSecondTracker()
     private var lastPreviewFps: Float? = null
+    private val volumeUpDoublePressDetector = VolumeUpDoublePressDetector()
+    private val keyHandler = Handler(Looper.getMainLooper())
+    private val pendingVolumeUpSinglePressRunnable = Runnable {
+        if (
+            volumeUpDoublePressDetector.consumePendingSinglePress(SystemClock.uptimeMillis()) ==
+            VolumeUpDoublePressDetector.Action.SinglePress
+        ) {
+            previewViewModel.zoomInPreview()
+        }
+    }
     private lateinit var previewBackPressedCallback: OnBackPressedCallback
     private lateinit var recordedClipAdapter: RecordedClipAdapter
     private lateinit var recordVideoCheckedChangeListener: CompoundButton.OnCheckedChangeListener
@@ -303,11 +317,15 @@ class MainActivity : ComponentActivity() {
         render(uiState)
     }
 
+    override fun onDestroy() {
+        keyHandler.removeCallbacks(pendingVolumeUpSinglePressRunnable)
+        super.onDestroy()
+    }
+
     override fun onKeyDown(keyCode: Int, event: KeyEvent): Boolean {
         if (latestUiState.isPreviewRunning) {
             when (keyCode) {
                 KeyEvent.KEYCODE_VOLUME_UP -> {
-                    previewViewModel.zoomInPreview()
                     return true
                 }
 
@@ -321,13 +339,43 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onKeyUp(keyCode: Int, event: KeyEvent): Boolean {
-        if (
-            latestUiState.isPreviewRunning &&
-            (keyCode == KeyEvent.KEYCODE_VOLUME_UP || keyCode == KeyEvent.KEYCODE_VOLUME_DOWN)
-        ) {
-            return true
+        if (latestUiState.isPreviewRunning) {
+            when (keyCode) {
+                KeyEvent.KEYCODE_VOLUME_UP -> {
+                    handleVolumeUpReleased()
+                    return true
+                }
+
+                KeyEvent.KEYCODE_VOLUME_DOWN -> {
+                    return true
+                }
+            }
         }
         return super.onKeyUp(keyCode, event)
+    }
+
+    private fun handleVolumeUpReleased() {
+        keyHandler.removeCallbacks(pendingVolumeUpSinglePressRunnable)
+        when (volumeUpDoublePressDetector.onPress(SystemClock.uptimeMillis())) {
+            VolumeUpDoublePressDetector.Action.DoublePress -> {
+                previewViewModel.rememberCurrentFace()
+            }
+
+            VolumeUpDoublePressDetector.Action.SinglePress -> {
+                previewViewModel.zoomInPreview()
+                keyHandler.postDelayed(
+                    pendingVolumeUpSinglePressRunnable,
+                    VolumeUpDoublePressDetector.DEFAULT_DOUBLE_PRESS_WINDOW_MILLIS
+                )
+            }
+
+            null -> {
+                keyHandler.postDelayed(
+                    pendingVolumeUpSinglePressRunnable,
+                    VolumeUpDoublePressDetector.DEFAULT_DOUBLE_PRESS_WINDOW_MILLIS
+                )
+            }
+        }
     }
 
     private fun render(uiState: PreviewUiState) {
@@ -363,6 +411,7 @@ class MainActivity : ComponentActivity() {
         renderRecordedClips(uiState)
         renderRecoveryState(uiState)
         renderPreviewRecordingStatus(uiState)
+        renderFaceRecognitionStatus(uiState)
         previewBackPressedCallback.isEnabled = uiState.isPreviewRunning
         binding.controlsContainer.visibility = if (uiState.isPreviewRunning) View.GONE else View.VISIBLE
         binding.previewContainer.alpha = if (uiState.isPreviewRunning) 1f else 0f
@@ -657,6 +706,17 @@ class MainActivity : ComponentActivity() {
             }
             windowInsets
         }
+        ViewCompat.setOnApplyWindowInsetsListener(binding.faceRecognitionStatusText) { view, windowInsets ->
+            val insets = windowInsets.getInsets(
+                WindowInsetsCompat.Type.systemBars() or WindowInsetsCompat.Type.displayCutout()
+            )
+            view.updateLayoutParams<FrameLayout.LayoutParams> {
+                topMargin = resources.getDimensionPixelSize(
+                    R.dimen.preview_face_status_margin_top
+                ) + insets.top
+            }
+            windowInsets
+        }
     }
 
     private fun hasCameraPermission(): Boolean {
@@ -713,6 +773,13 @@ class MainActivity : ComponentActivity() {
         binding.previewRecordingStatusText.text = message.orEmpty()
         binding.previewRecordingStatusText.visibility =
             if (message == null) View.GONE else View.VISIBLE
+    }
+
+    private fun renderFaceRecognitionStatus(uiState: PreviewUiState) {
+        val message = uiState.faceRecognitionStatusText
+        binding.faceRecognitionStatusText.text = message.orEmpty()
+        binding.faceRecognitionStatusText.visibility =
+            if (uiState.isPreviewRunning && message != null) View.VISIBLE else View.GONE
     }
 
     private fun openClipSafely(clip: RecordedClip) {

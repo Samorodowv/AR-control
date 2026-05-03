@@ -14,6 +14,13 @@ import com.example.ar_control.detection.DetectionSessionStats
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.InMemorySessionLog
+import com.example.ar_control.face.FaceEmbedding
+import com.example.ar_control.face.FaceEnrollmentResult
+import com.example.ar_control.face.FaceRecognitionSession
+import com.example.ar_control.face.FaceRecognitionState
+import com.example.ar_control.face.FaceRecognitionStatus
+import com.example.ar_control.face.FaceRecognizer
+import com.example.ar_control.face.RememberedFace
 import com.example.ar_control.gemma.GemmaCaptionSession
 import com.example.ar_control.gemma.GemmaFrameCaptioner
 import com.example.ar_control.gemma.GemmaModelDownloadProgress
@@ -873,6 +880,101 @@ class PreviewViewModelTest {
     }
 
     @Test
+    fun startPreview_startsFaceRecognitionCallbackStreamAndShowsStatus() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val faceRecognizer = FakeFaceRecognizer(
+            initialState = FaceRecognitionState(
+                modelReady = true,
+                faceCount = 1,
+                status = FaceRecognitionStatus.UnknownFace
+            )
+        )
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            faceRecognizer = faceRecognizer,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, faceRecognizer.startCalls)
+        assertEquals(PreviewSize(width = 640, height = 480), faceRecognizer.lastPreviewSize)
+        assertEquals(1, cameraSource.startRecordingCalls)
+        assertTrue(cameraSource.lastRecordingTarget is RecordingInputTarget.FrameCallbackTarget)
+        assertEquals("Лицо: неизвестное", viewModel.uiState.value.faceRecognitionStatusText)
+    }
+
+    @Test
+    fun rememberCurrentFace_usesActiveFaceSessionAndShowsRememberedLabel() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val rememberedFace = RememberedFace(
+            id = "face-1",
+            label = "Face 1",
+            embedding = FaceEmbedding(floatArrayOf(1f, 0f))
+        )
+        val faceRecognizer = FakeFaceRecognizer(
+            initialState = FaceRecognitionState(
+                modelReady = true,
+                faceCount = 1,
+                bestFaceEmbedding = rememberedFace.embedding,
+                status = FaceRecognitionStatus.UnknownFace
+            ),
+            enrollmentResult = FaceEnrollmentResult.Remembered(rememberedFace)
+        )
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            faceRecognizer = faceRecognizer,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.rememberCurrentFace()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertEquals(1, faceRecognizer.lastSession?.rememberCalls)
+        assertEquals("Запомнил Face 1", viewModel.uiState.value.faceRecognitionStatusText)
+    }
+
+    @Test
+    fun stopPreview_closesFaceSessionAndClearsFaceStatus() = runTest {
+        val cameraSource = FakeCameraSource(
+            recordingStartResult = CameraSource.RecordingStartResult.Started
+        )
+        val faceRecognizer = FakeFaceRecognizer(
+            initialState = FaceRecognitionState(
+                modelReady = true,
+                faceCount = 1,
+                status = FaceRecognitionStatus.UnknownFace
+            )
+        )
+        val viewModel = buildViewModel(
+            cameraSource = cameraSource,
+            faceRecognizer = faceRecognizer,
+            cleanupScope = cleanupScope
+        )
+
+        viewModel.enableCamera()
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.startPreview(FakeCameraSurfaceToken)
+        dispatcher.scheduler.advanceUntilIdle()
+        viewModel.stopPreview()
+        dispatcher.scheduler.advanceUntilIdle()
+
+        assertTrue(faceRecognizer.lastSession?.closed == true)
+        assertEquals(null, viewModel.uiState.value.faceRecognitionStatusText)
+    }
+
+    @Test
     fun stopPreview_whileRecordingStillStarting_doesNotAllowStaleStartToResumeRecording() = runTest {
         val captureSurface = TestSurface.create()
         captureSurface.use { testSurface ->
@@ -1439,6 +1541,7 @@ private fun buildViewModel(
     gemmaSubtitlePreferences: GemmaSubtitlePreferences = FakeGemmaSubtitlePreferences(),
     gemmaModelDownloadScheduler: GemmaModelDownloadScheduler? = null,
     gemmaFrameCaptioner: GemmaFrameCaptioner = FakeGemmaFrameCaptioner(),
+    faceRecognizer: FaceRecognizer = FakeFaceRecognizer(),
     clipRepository: ClipRepository = FakeClipRepository(),
     videoRecorder: VideoRecorder = FakeVideoRecorder(),
     recoveryManager: RecoveryManager = FakeRecoveryManager(),
@@ -1460,6 +1563,7 @@ private fun buildViewModel(
         gemmaSubtitlePreferences = gemmaSubtitlePreferences,
         gemmaModelDownloadScheduler = gemmaModelDownloadScheduler,
         gemmaFrameCaptioner = gemmaFrameCaptioner,
+        faceRecognizer = faceRecognizer,
         clipRepository = clipRepository,
         videoRecorder = videoRecorder,
         recoveryManager = recoveryManager,
@@ -1759,6 +1863,61 @@ private class FakeObjectDetectionSession(
 
     fun publishStats(stats: DetectionSessionStats) {
         onSessionStatsUpdated(stats)
+    }
+
+    override fun close() {
+        closed = true
+    }
+}
+
+private class FakeFaceRecognizer(
+    private val initialState: FaceRecognitionState = FaceRecognitionState(modelReady = false),
+    private val enrollmentResult: FaceEnrollmentResult = FaceEnrollmentResult.ModelMissing
+) : FaceRecognizer {
+    var startCalls = 0
+    var lastPreviewSize: PreviewSize? = null
+    var lastSession: FakeFaceRecognitionSession? = null
+
+    override fun start(
+        previewSize: PreviewSize,
+        onStateUpdated: (FaceRecognitionState) -> Unit
+    ): FaceRecognitionSession {
+        startCalls += 1
+        lastPreviewSize = previewSize
+        onStateUpdated(initialState)
+        return FakeFaceRecognitionSession(initialState, enrollmentResult, onStateUpdated).also {
+            lastSession = it
+        }
+    }
+}
+
+private class FakeFaceRecognitionSession(
+    override val currentState: FaceRecognitionState,
+    private val enrollmentResult: FaceEnrollmentResult,
+    private val onStateUpdated: (FaceRecognitionState) -> Unit
+) : FaceRecognitionSession {
+    var closed = false
+        private set
+    var rememberCalls = 0
+        private set
+
+    override val inputTarget: RecordingInputTarget.FrameCallbackTarget =
+        RecordingInputTarget.FrameCallbackTarget(
+            pixelFormat = VideoFramePixelFormat.YUV420SP,
+            frameConsumer = VideoFrameConsumer { _, _ -> }
+        )
+
+    override fun rememberCurrentFace(): FaceEnrollmentResult {
+        rememberCalls += 1
+        if (enrollmentResult is FaceEnrollmentResult.Remembered) {
+            onStateUpdated(
+                currentState.copy(
+                    matchedFace = enrollmentResult.face,
+                    status = FaceRecognitionStatus.RememberedFace
+                )
+            )
+        }
+        return enrollmentResult
     }
 
     override fun close() {

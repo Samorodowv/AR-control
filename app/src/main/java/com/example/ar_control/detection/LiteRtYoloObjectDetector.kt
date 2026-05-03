@@ -5,13 +5,10 @@ import android.content.res.AssetManager
 import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.diagnostics.NoOpSessionLog
 import com.example.ar_control.diagnostics.SessionLog
-import java.io.FileInputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import java.nio.FloatBuffer
-import java.nio.MappedByteBuffer
-import java.nio.channels.FileChannel
-import org.tensorflow.lite.Interpreter
+import com.google.ai.edge.litert.Accelerator
+import com.google.ai.edge.litert.CompiledModel
+import com.google.ai.edge.litert.Environment
+import com.google.ai.edge.litert.TensorBuffer
 
 class LiteRtYoloObjectDetector(
     context: Context,
@@ -20,7 +17,6 @@ class LiteRtYoloObjectDetector(
     private val confidenceThreshold: Float = DEFAULT_CONFIDENCE_THRESHOLD,
     private val iouThreshold: Float = DEFAULT_IOU_THRESHOLD,
     private val maxResults: Int = DEFAULT_MAX_RESULTS,
-    private val numThreads: Int = Runtime.getRuntime().availableProcessors().coerceIn(1, 4),
     private val sessionLog: SessionLog = NoOpSessionLog
 ) : ObjectDetector {
 
@@ -28,7 +24,8 @@ class LiteRtYoloObjectDetector(
 
     override fun start(
         previewSize: PreviewSize,
-        onDetectionsUpdated: (List<DetectedObject>) -> Unit
+        onDetectionsUpdated: (List<DetectedObject>) -> Unit,
+        onSessionStatsUpdated: (DetectionSessionStats) -> Unit
     ): ObjectDetectionSession {
         sessionLog.record(
             TAG,
@@ -43,10 +40,10 @@ class LiteRtYoloObjectDetector(
                 confidenceThreshold = confidenceThreshold,
                 iouThreshold = iouThreshold,
                 maxResults = maxResults,
-                numThreads = numThreads,
                 sessionLog = sessionLog
             ),
-            onDetectionsUpdated = onDetectionsUpdated
+            onDetectionsUpdated = onDetectionsUpdated,
+            onSessionStatsUpdated = onSessionStatsUpdated
         )
     }
 
@@ -57,68 +54,83 @@ class LiteRtYoloObjectDetector(
         private val confidenceThreshold: Float,
         private val iouThreshold: Float,
         private val maxResults: Int,
-        numThreads: Int,
         private val sessionLog: SessionLog
     ) : FrameDetectionProcessor {
 
-        private val interpreter: Interpreter
+        override val runtimeBackendLabel: String
+
+        private val environment: Environment
+        private val compiledModel: CompiledModel
+        private val inputBuffers: List<TensorBuffer>
+        private val outputBuffers: List<TensorBuffer>
         private val labels: List<String>
         private val modelWidth: Int
         private val modelHeight: Int
-        private val predictionCount: Int
         private val outputChannelCount: Int
         private val inputFloats: FloatArray
-        private val inputBuffer: ByteBuffer
-        private val inputFloatBuffer: FloatBuffer
-        private val outputFloats: FloatArray
-        private val outputBuffer: ByteBuffer
-        private val outputFloatBuffer: FloatBuffer
 
         init {
-            interpreter = Interpreter(
-                loadModelFile(assets, modelAssetPath),
-                Interpreter.Options().apply {
-                    setNumThreads(numThreads)
-                }
-            )
-            interpreter.allocateTensors()
-
-            val inputShape = interpreter.getInputTensor(0).shape()
-            require(inputShape.size == 4 && inputShape[0] == 1 && inputShape[3] == 3) {
-                "Unexpected YOLO input shape ${inputShape.contentToString()}"
-            }
-
-            val outputShape = interpreter.getOutputTensor(0).shape()
-            require(outputShape.size == 3 && outputShape[0] == 1) {
-                "Unexpected YOLO output shape ${outputShape.contentToString()}"
-            }
-
-            modelHeight = inputShape[1]
-            modelWidth = inputShape[2]
-            outputChannelCount = outputShape[1]
-            predictionCount = outputShape[2]
-
             labels = assets.open(labelsAssetPath).bufferedReader().use { reader ->
                 reader.readLines().map(String::trim).filter(String::isNotEmpty)
             }
+            outputChannelCount = labels.size + BOX_CHANNEL_COUNT
+            modelWidth = DEFAULT_MODEL_INPUT_WIDTH
+            modelHeight = DEFAULT_MODEL_INPUT_HEIGHT
+            inputFloats = FloatArray(modelWidth * modelHeight * INPUT_CHANNEL_COUNT)
 
-            require(labels.size == outputChannelCount - 4) {
-                "Expected ${outputChannelCount - 4} labels but found ${labels.size}"
+            environment = Environment.create()
+            val requestedAccelerators = automaticAccelerators(
+                availableAccelerators = runCatching { environment.getAvailableAccelerators() }
+                    .getOrDefault(emptySet())
+            )
+            val preferredBackendLabel = formatAcceleratorLabel(requestedAccelerators)
+
+            val compiledModelSetup = runCatching {
+                CompiledModel.create(
+                    assets,
+                    modelAssetPath,
+                    CompiledModel.Options(*requestedAccelerators.toTypedArray()),
+                    environment
+                )
+            }.map { model ->
+                CompiledModelSetup(
+                    model = model,
+                    backendLabel = preferredBackendLabel
+                )
+            }.recoverCatching { error ->
+                sessionLog.record(
+                    TAG,
+                    "CompiledModel creation failed for $preferredBackendLabel; retrying CPU: ${error.message ?: "unknown_error"}"
+                )
+                CompiledModelSetup(
+                    model = CompiledModel.create(
+                        assets,
+                        modelAssetPath,
+                        CompiledModel.Options(Accelerator.CPU),
+                        environment
+                    ),
+                    backendLabel = "CPU fallback"
+                )
+            }.getOrElse { error ->
+                environment.close()
+                throw error
             }
 
-            inputFloats = FloatArray(modelWidth * modelHeight * 3)
-            inputBuffer = ByteBuffer.allocateDirect(inputFloats.size * Float.SIZE_BYTES)
-                .order(ByteOrder.nativeOrder())
-            inputFloatBuffer = inputBuffer.asFloatBuffer()
+            compiledModel = compiledModelSetup.model
+            runtimeBackendLabel = compiledModelSetup.backendLabel
+            inputBuffers = compiledModel.createInputBuffers()
+            require(inputBuffers.size == 1) {
+                "Expected one YOLO input buffer but found ${inputBuffers.size}"
+            }
 
-            outputFloats = FloatArray(outputChannelCount * predictionCount)
-            outputBuffer = ByteBuffer.allocateDirect(outputFloats.size * Float.SIZE_BYTES)
-                .order(ByteOrder.nativeOrder())
-            outputFloatBuffer = outputBuffer.asFloatBuffer()
+            outputBuffers = compiledModel.createOutputBuffers()
+            require(outputBuffers.size == 1) {
+                "Expected one YOLO output buffer but found ${outputBuffers.size}"
+            }
 
             sessionLog.record(
                 TAG,
-                "Loaded YOLO model ${modelWidth}x${modelHeight}, output=${outputShape.contentToString()}, labels=${labels.size}"
+                "Loaded YOLO CompiledModel ${modelWidth}x${modelHeight}, accelerators=$runtimeBackendLabel, labels=${labels.size}"
             )
         }
 
@@ -136,17 +148,15 @@ class LiteRtYoloObjectDetector(
                 destination = inputFloats
             )
 
-            inputFloatBuffer.rewind()
-            inputFloatBuffer.put(inputFloats)
-            inputBuffer.rewind()
+            inputBuffers.single().writeFloat(inputFloats)
+            compiledModel.run(inputBuffers, outputBuffers)
 
-            outputFloatBuffer.rewind()
-            outputBuffer.rewind()
+            val outputFloats = outputBuffers.single().readFloat()
+            require(outputFloats.size % outputChannelCount == 0) {
+                "Unexpected YOLO output size ${outputFloats.size} for $outputChannelCount channels"
+            }
 
-            interpreter.run(inputBuffer, outputBuffer)
-
-            outputFloatBuffer.rewind()
-            outputFloatBuffer.get(outputFloats)
+            val predictionCount = outputFloats.size / outputChannelCount
             denormalizeBoxChannelsInPlace(outputFloats, predictionCount, modelWidth, modelHeight)
 
             return YoloDetectionPostProcessor.process(
@@ -162,7 +172,8 @@ class LiteRtYoloObjectDetector(
         }
 
         override fun close() {
-            interpreter.close()
+            runCatching { compiledModel.close() }
+            runCatching { environment.close() }
         }
 
         private fun denormalizeBoxChannelsInPlace(
@@ -187,19 +198,36 @@ class LiteRtYoloObjectDetector(
             return (channelIndex * predictionCount) + predictionIndex
         }
 
-        private fun loadModelFile(
-            assets: AssetManager,
-            assetPath: String
-        ): MappedByteBuffer {
-            val descriptor = assets.openFd(assetPath)
-            FileInputStream(descriptor.fileDescriptor).channel.use { channel ->
-                return channel.map(
-                    FileChannel.MapMode.READ_ONLY,
-                    descriptor.startOffset,
-                    descriptor.declaredLength
-                )
+        private fun automaticAccelerators(
+            availableAccelerators: Set<Accelerator>
+        ): List<Accelerator> {
+            val normalized = availableAccelerators
+                .filter { it != Accelerator.NONE }
+                .toMutableSet()
+                .apply { add(Accelerator.CPU) }
+
+            return ACCELERATOR_PRIORITY.filter(normalized::contains)
+                .ifEmpty { listOf(Accelerator.CPU) }
+        }
+
+        private fun formatAcceleratorLabel(accelerators: List<Accelerator>): String {
+            return accelerators.joinToString(
+                separator = "->",
+                prefix = "AUTO "
+            ) { accelerator ->
+                when (accelerator) {
+                    Accelerator.NPU -> "NPU"
+                    Accelerator.GPU -> "GPU"
+                    Accelerator.CPU -> "CPU"
+                    Accelerator.NONE -> "NONE"
+                }
             }
         }
+
+        private data class CompiledModelSetup(
+            val model: CompiledModel,
+            val backendLabel: String
+        )
     }
 
     private companion object {
@@ -209,5 +237,10 @@ class LiteRtYoloObjectDetector(
         const val DEFAULT_CONFIDENCE_THRESHOLD = 0.25f
         const val DEFAULT_IOU_THRESHOLD = 0.45f
         const val DEFAULT_MAX_RESULTS = 20
+        const val DEFAULT_MODEL_INPUT_WIDTH = 640
+        const val DEFAULT_MODEL_INPUT_HEIGHT = 640
+        const val INPUT_CHANNEL_COUNT = 3
+        const val BOX_CHANNEL_COUNT = 4
+        val ACCELERATOR_PRIORITY = listOf(Accelerator.NPU, Accelerator.GPU, Accelerator.CPU)
     }
 }

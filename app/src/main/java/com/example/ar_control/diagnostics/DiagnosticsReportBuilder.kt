@@ -24,6 +24,8 @@ class DiagnosticsReportBuilder(
             uiState.previewSize?.let { appendLine("Preview size: ${it.width}x${it.height}") }
             appendLine("Zoom factor: ${String.format(Locale.US, "%.2f", uiState.zoomFactor)}")
             appendLine("Record video enabled: ${uiState.recordVideoEnabled}")
+            appendLine("Inference FPS: ${String.format(Locale.US, "%.2f", uiState.inferenceFps)}")
+            appendLine("Inference backend: ${uiState.inferenceBackendLabel ?: "none"}")
             appendLine("Recording status: ${uiState.recordingStatus}")
             appendLine("Safe mode: ${uiState.isSafeMode}")
             uiState.safeModeReason?.let { appendLine("Safe mode reason: $it") }

@@ -372,16 +372,29 @@ class PreviewViewModel(
         }
 
         val detectionSession = if (shouldRunDetection) {
-            objectDetector.start(previewSize) { detections ->
-                detectionAnnotationSink.updateDetections(previewSize, detections)
-                viewModelScope.launch {
-                    if (_uiState.value.isPreviewRunning) {
-                        _uiState.value = applyRecoveryState(_uiState.value.copy(
-                            detectedObjects = detections
-                        ))
+            objectDetector.start(
+                previewSize = previewSize,
+                onDetectionsUpdated = { detections ->
+                    detectionAnnotationSink.updateDetections(previewSize, detections)
+                    viewModelScope.launch {
+                        if (_uiState.value.isPreviewRunning) {
+                            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                                detectedObjects = detections
+                            ))
+                        }
+                    }
+                },
+                onSessionStatsUpdated = { stats ->
+                    viewModelScope.launch {
+                        if (_uiState.value.isPreviewRunning) {
+                            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                                inferenceFps = stats.inferenceFps,
+                                inferenceBackendLabel = stats.backendLabel
+                            ))
+                        }
                     }
                 }
-            }.also { activeDetectionSession = it }
+            ).also { activeDetectionSession = it }
         } else {
             null
         }
@@ -669,7 +682,9 @@ class PreviewViewModel(
                 safeModeReason = snapshot.safeModeReason,
                 brokenClipMetadata = snapshot.brokenClipMetadata,
                 canChangeRecordVideo = false,
-                canChangeObjectDetection = false
+                canChangeObjectDetection = false,
+                inferenceFps = 0f,
+                inferenceBackendLabel = null
             )
         } else {
             baseState.copy(
@@ -704,6 +719,8 @@ class PreviewViewModel(
             zoomFactor = minZoomFactor,
             recordingStatus = recordingStatus,
             detectedObjects = emptyList(),
+            inferenceFps = 0f,
+            inferenceBackendLabel = null,
             errorMessage = errorMessage
         ))
     }
@@ -722,6 +739,8 @@ class PreviewViewModel(
             zoomFactor = minZoomFactor,
             recordingStatus = recordingStatus,
             detectedObjects = emptyList(),
+            inferenceFps = 0f,
+            inferenceBackendLabel = null,
             errorMessage = errorMessage
         ))
     }
@@ -737,6 +756,8 @@ class PreviewViewModel(
             zoomFactor = minZoomFactor,
             recordingStatus = RecordingStatus.Idle,
             detectedObjects = emptyList(),
+            inferenceFps = 0f,
+            inferenceBackendLabel = null,
             errorMessage = null
         ))
     }
@@ -789,7 +810,11 @@ class PreviewViewModel(
         activeDetectionSession = null
         if (clearDetections) {
             detectionAnnotationSink.clearDetections()
-            _uiState.value = applyRecoveryState(_uiState.value.copy(detectedObjects = emptyList()))
+            _uiState.value = applyRecoveryState(_uiState.value.copy(
+                detectedObjects = emptyList(),
+                inferenceFps = 0f,
+                inferenceBackendLabel = null
+            ))
         }
     }
     private companion object {

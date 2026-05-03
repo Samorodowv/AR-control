@@ -8,6 +8,7 @@ import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.detection.DetectionPreferences
 import com.example.ar_control.detection.DetectedObject
 import com.example.ar_control.detection.DetectionBoundingBox
+import com.example.ar_control.detection.DetectionSessionStats
 import com.example.ar_control.detection.ObjectDetectionSession
 import com.example.ar_control.detection.ObjectDetector
 import com.example.ar_control.diagnostics.InMemorySessionLog
@@ -395,9 +396,17 @@ class PreviewViewModelTest {
         dispatcher.scheduler.advanceUntilIdle()
 
         objectDetector.lastSession?.publish(listOf(expectedDetection))
+        objectDetector.lastSession?.publishStats(
+            DetectionSessionStats(
+                backendLabel = "AUTO GPU->CPU",
+                inferenceFps = 6.5f
+            )
+        )
         dispatcher.scheduler.advanceUntilIdle()
 
         assertEquals(listOf(expectedDetection), viewModel.uiState.value.detectedObjects)
+        assertEquals("AUTO GPU->CPU", viewModel.uiState.value.inferenceBackendLabel)
+        assertEquals(6.5f, viewModel.uiState.value.inferenceFps, 0.0001f)
         assertEquals(1, detectionAnnotationSink.updates.size)
         assertEquals(listOf(expectedDetection), detectionAnnotationSink.updates.single().detections)
 
@@ -406,6 +415,8 @@ class PreviewViewModelTest {
 
         assertTrue(objectDetector.lastSession?.closed == true)
         assertTrue(viewModel.uiState.value.detectedObjects.isEmpty())
+        assertEquals(null, viewModel.uiState.value.inferenceBackendLabel)
+        assertEquals(0f, viewModel.uiState.value.inferenceFps, 0.0001f)
         assertEquals(1, detectionAnnotationSink.clearCalls)
     }
 
@@ -1136,17 +1147,19 @@ private class FakeObjectDetector : ObjectDetector {
 
     override fun start(
         previewSize: PreviewSize,
-        onDetectionsUpdated: (List<DetectedObject>) -> Unit
+        onDetectionsUpdated: (List<DetectedObject>) -> Unit,
+        onSessionStatsUpdated: (DetectionSessionStats) -> Unit
     ): ObjectDetectionSession {
         startCalls += 1
-        return FakeObjectDetectionSession(onDetectionsUpdated).also {
+        return FakeObjectDetectionSession(onDetectionsUpdated, onSessionStatsUpdated).also {
             lastSession = it
         }
     }
 }
 
 private class FakeObjectDetectionSession(
-    private val onDetectionsUpdated: (List<DetectedObject>) -> Unit
+    private val onDetectionsUpdated: (List<DetectedObject>) -> Unit,
+    private val onSessionStatsUpdated: (DetectionSessionStats) -> Unit
 ) : ObjectDetectionSession {
     var closed = false
         private set
@@ -1159,6 +1172,10 @@ private class FakeObjectDetectionSession(
 
     fun publish(detections: List<DetectedObject>) {
         onDetectionsUpdated(detections)
+    }
+
+    fun publishStats(stats: DetectionSessionStats) {
+        onSessionStatsUpdated(stats)
     }
 
     override fun close() {

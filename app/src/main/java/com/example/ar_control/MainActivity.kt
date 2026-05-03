@@ -32,6 +32,7 @@ import com.example.ar_control.camera.PreviewSize
 import com.example.ar_control.camera.TextureViewSurfaceToken
 import com.example.ar_control.databinding.ActivityMainBinding
 import com.example.ar_control.di.AppContainer
+import com.example.ar_control.performance.FramesPerSecondTracker
 import com.example.ar_control.recording.RecordedClip
 import com.example.ar_control.recording.RecordingStatus
 import com.example.ar_control.ui.clips.RecordedClipAdapter
@@ -59,6 +60,8 @@ class MainActivity : ComponentActivity() {
     private var isImmersivePreviewEnabled = false
     private var lastAppliedPreviewSize: PreviewSize? = null
     private var lastAppliedZoomFactor: Float = 1.0f
+    private val previewFpsTracker = FramesPerSecondTracker()
+    private var lastPreviewFps: Float? = null
     private lateinit var previewBackPressedCallback: OnBackPressedCallback
     private lateinit var recordedClipAdapter: RecordedClipAdapter
     private lateinit var recordVideoCheckedChangeListener: CompoundButton.OnCheckedChangeListener
@@ -205,7 +208,13 @@ class MainActivity : ComponentActivity() {
                 return true
             }
 
-            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) = Unit
+            override fun onSurfaceTextureUpdated(surface: SurfaceTexture) {
+                if (!latestUiState.isPreviewRunning) {
+                    return
+                }
+                lastPreviewFps = previewFpsTracker.recordFrame(System.nanoTime())
+                renderDetectionHud(latestUiState)
+            }
         }
         if (binding.previewTextureView.isAvailable) {
             appContainer.sessionLog.record("MainActivity", "Preview surface already available")
@@ -268,6 +277,7 @@ class MainActivity : ComponentActivity() {
         binding.previewContainer.isFocusable = uiState.isPreviewRunning
         binding.detectionOverlayView.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
         binding.detectionOverlayView.setDetections(uiState.detectedObjects)
+        renderDetectionHud(uiState)
         binding.previewBackButton.visibility = if (uiState.isPreviewRunning) View.VISIBLE else View.INVISIBLE
         binding.previewBackButton.isEnabled = uiState.isPreviewRunning
 
@@ -404,6 +414,18 @@ class MainActivity : ComponentActivity() {
         appContainer.sessionLog.record(
             "MainActivity",
             "Applying fit-center preview aspect ratio ${previewSize.width}x${previewSize.height}"
+        )
+    }
+
+    private fun renderDetectionHud(uiState: PreviewUiState) {
+        if (!uiState.isPreviewRunning) {
+            previewFpsTracker.reset()
+            lastPreviewFps = null
+        }
+        binding.detectionOverlayView.setHud(
+            previewFps = lastPreviewFps,
+            inferenceFps = uiState.inferenceFps,
+            inferenceBackendLabel = uiState.inferenceBackendLabel
         )
     }
 

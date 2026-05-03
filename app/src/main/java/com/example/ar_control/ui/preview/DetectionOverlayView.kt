@@ -5,6 +5,7 @@ import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.RectF
+import android.graphics.Typeface
 import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.View
@@ -12,6 +13,7 @@ import com.example.ar_control.detection.DetectedObject
 import com.example.ar_control.detection.DetectionOverlayMapper
 import com.example.ar_control.preview.FitCenterLayoutCalculator
 import com.example.ar_control.preview.PreviewTransformCalculator
+import java.util.Locale
 import kotlin.math.roundToInt
 
 class DetectionOverlayView @JvmOverloads constructor(
@@ -40,11 +42,29 @@ class DetectionOverlayView @JvmOverloads constructor(
     }
     private val textBounds = android.graphics.Rect()
     private val labelRect = RectF()
+    private val hudBackgroundPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.argb(176, 0, 0, 0)
+    }
+    private val hudTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+        style = Paint.Style.FILL
+        color = Color.WHITE
+        typeface = Typeface.MONOSPACE
+        textSize = TypedValue.applyDimension(
+            TypedValue.COMPLEX_UNIT_SP,
+            11f,
+            resources.displayMetrics
+        )
+    }
+    private val hudRect = RectF()
 
     private var contentWidth: Int = 0
     private var contentHeight: Int = 0
     private var zoomFactor: Float = 1.0f
     private var detections: List<DetectedObject> = emptyList()
+    private var previewFps: Float? = null
+    private var inferenceFps: Float = 0f
+    private var inferenceBackendLabel: String? = null
 
     fun setContentAspectRatio(width: Int, height: Int) {
         if (width <= 0 || height <= 0) {
@@ -80,6 +100,17 @@ class DetectionOverlayView @JvmOverloads constructor(
 
     fun setDetections(value: List<DetectedObject>) {
         detections = value
+        invalidate()
+    }
+
+    fun setHud(
+        previewFps: Float?,
+        inferenceFps: Float,
+        inferenceBackendLabel: String?
+    ) {
+        this.previewFps = previewFps
+        this.inferenceFps = inferenceFps
+        this.inferenceBackendLabel = inferenceBackendLabel
         invalidate()
     }
 
@@ -149,6 +180,8 @@ class DetectionOverlayView @JvmOverloads constructor(
                 labelTextPaint
             )
         }
+
+        drawHud(canvas)
     }
 
     private fun applyPreviewTransform() {
@@ -157,5 +190,49 @@ class DetectionOverlayView @JvmOverloads constructor(
         pivotY = measuredHeight / 2f
         scaleX = transform.scaleX
         scaleY = transform.scaleY
+    }
+
+    private fun drawHud(canvas: Canvas) {
+        val lines = mutableListOf<String>()
+        previewFps?.let { lines += "Preview ${formatFps(it)} FPS" }
+        inferenceBackendLabel?.let { backend ->
+            val inferenceLabel = if (inferenceFps > 0f) {
+                "Infer ${formatFps(inferenceFps)} FPS"
+            } else {
+                "Infer -- FPS"
+            }
+            lines += inferenceLabel
+            lines += backend
+        }
+
+        if (lines.isEmpty()) {
+            return
+        }
+
+        val padding = density * 8f
+        val margin = density * 8f
+        val cornerRadius = density * 8f
+        val lineSpacing = density * 2f
+        val lineHeight = hudTextPaint.fontSpacing
+        val textWidth = lines.maxOf { hudTextPaint.measureText(it) }
+        val contentHeight = (lineHeight * lines.size) + (lineSpacing * (lines.size - 1))
+
+        hudRect.set(
+            measuredWidth - margin - textWidth - (padding * 2f),
+            margin,
+            measuredWidth - margin,
+            margin + contentHeight + (padding * 2f)
+        )
+        canvas.drawRoundRect(hudRect, cornerRadius, cornerRadius, hudBackgroundPaint)
+
+        var baseline = hudRect.top + padding - hudTextPaint.ascent()
+        for (line in lines) {
+            canvas.drawText(line, hudRect.left + padding, baseline, hudTextPaint)
+            baseline += lineHeight + lineSpacing
+        }
+    }
+
+    private fun formatFps(value: Float): String {
+        return String.format(Locale.US, "%.1f", value)
     }
 }

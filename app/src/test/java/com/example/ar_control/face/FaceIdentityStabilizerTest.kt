@@ -54,6 +54,79 @@ class FaceIdentityStabilizerTest {
     }
 
     @Test
+    fun decide_retainsStableIdentityForRetainableMisses() {
+        val stabilizer = FaceIdentityStabilizer(requiredConsecutiveMatches = 2)
+
+        stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.91f))
+        assertEquals(
+            bannedFace,
+            stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.92f))
+        )
+
+        repeat(3) {
+            assertEquals(
+                bannedFace,
+                stabilizer.decide(null, retainStableIdentityOnMiss = true)
+            )
+        }
+    }
+
+    @Test
+    fun decide_expiresRetainedIdentityAfterThreeRetainableMisses() {
+        val stabilizer = FaceIdentityStabilizer(requiredConsecutiveMatches = 2)
+
+        stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.91f))
+        assertEquals(
+            bannedFace,
+            stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.92f))
+        )
+        repeat(3) {
+            assertEquals(
+                bannedFace,
+                stabilizer.decide(null, retainStableIdentityOnMiss = true)
+            )
+        }
+
+        assertNull(stabilizer.decide(null, retainStableIdentityOnMiss = true))
+        assertNull(stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.93f)))
+    }
+
+    @Test
+    fun decide_clearsStableIdentityOnNonRetainableMiss() {
+        val stabilizer = FaceIdentityStabilizer(requiredConsecutiveMatches = 2)
+
+        stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.91f))
+        assertEquals(
+            bannedFace,
+            stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.92f))
+        )
+
+        assertNull(stabilizer.decide(null, retainStableIdentityOnMiss = false))
+        assertNull(stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.93f)))
+    }
+
+    @Test
+    fun decide_doesNotRetainStableIdentityForDifferentMatchedCandidate() {
+        val stabilizer = FaceIdentityStabilizer(requiredConsecutiveMatches = 2)
+
+        stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.91f))
+        assertEquals(
+            bannedFace,
+            stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(bannedFace, 0.92f))
+        )
+        assertEquals(
+            bannedFace,
+            stabilizer.decide(null, retainStableIdentityOnMiss = true)
+        )
+
+        assertNull(stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(approvedFace, 0.93f)))
+        assertEquals(
+            approvedFace,
+            stabilizer.decide(FaceEmbeddingMatcher.FaceMatch(approvedFace, 0.94f))
+        )
+    }
+
+    @Test
     fun decide_clearsPendingCandidateWhenStableIdentityAppearsAgain() {
         val stabilizer = FaceIdentityStabilizer(requiredConsecutiveMatches = 2)
 

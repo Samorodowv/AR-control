@@ -152,7 +152,7 @@ class MlKitFaceRecognizer(
         private val detector: FaceDetector = FaceDetection.getClient(
             FaceDetectorOptions.Builder()
                 .setPerformanceMode(FaceDetectorOptions.PERFORMANCE_MODE_ACCURATE)
-                .setMinFaceSize(0.15f)
+                .setMinFaceSize(0.08f)
                 .build()
         )
         private val closed = AtomicBoolean(false)
@@ -386,7 +386,10 @@ class MlKitFaceRecognizer(
         private fun EmbeddingCandidate?.toRecognitionStateLocked(): FaceRecognitionState {
             val candidate = checkNotNull(this) { "Embedding candidate is required for single-face state" }
             val match = matcher.findBestMatch(candidate.embedding, embeddingStore.loadAll())
-            val stableFace = identityStabilizer.decide(match)
+            val stableFace = identityStabilizer.decide(
+                match = match,
+                retainStableIdentityOnMiss = true
+            )
             return FaceRecognitionState(
                 modelReady = true,
                 faceCount = 1,

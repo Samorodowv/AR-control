@@ -21,6 +21,16 @@ class FaceBoxFilterTest {
     }
 
     @Test
+    fun acceptsFarFaceGeometry() {
+        assertTrue(
+            filter.isAccepted(
+                DetectionBoundingBox(left = 610f, top = 250f, right = 670f, bottom = 320f),
+                previewSize
+            )
+        )
+    }
+
+    @Test
     fun rejectsTinyBoxesThatCauseFalsePositives() {
         assertFalse(
             filter.isAccepted(
